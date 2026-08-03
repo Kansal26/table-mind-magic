@@ -14,13 +14,13 @@ export type SessionScope = {
  * a diner has, so every server function scopes its work through here.
  */
 export async function requireSessionScope(qrToken: string): Promise<SessionScope | null> {
-  const token = qrToken?.trim();
-  if (!token || token.length > 200) return null;
+  const token = normalizeQrToken(qrToken);
+  if (!token) return null;
 
   const { data: table, error } = await supabaseAdmin
     .from("tables")
     .select("id, restaurant_id")
-    .eq("qr_token", token)
+    .ilike("qr_token", token)
     .maybeSingle();
   if (error) throw error;
   if (!table) return null;
@@ -49,14 +49,31 @@ export async function requireSessionScope(qrToken: string): Promise<SessionScope
   return { sessionId, tableId: table.id, restaurantId: table.restaurant_id };
 }
 
+/**
+ * QR tokens arrive from a URL segment, so they can be percent-encoded, padded
+ * with whitespace, or differ in case from the seeded row. Normalize before
+ * matching so a valid sticker never reads as "inactive".
+ */
+export function normalizeQrToken(qrToken: string): string | null {
+  if (typeof qrToken !== "string") return null;
+  let token = qrToken.trim();
+  try {
+    token = decodeURIComponent(token).trim();
+  } catch {
+    // Malformed escape sequence: keep the raw trimmed value.
+  }
+  if (!token || token.length > 200) return null;
+  return token;
+}
+
 /** Resolves a QR token to its table without opening a session. */
 export async function resolveTableId(qrToken: string): Promise<string | null> {
-  const token = qrToken?.trim();
-  if (!token || token.length > 200) return null;
+  const token = normalizeQrToken(qrToken);
+  if (!token) return null;
   const { data, error } = await supabaseAdmin
     .from("tables")
     .select("id")
-    .eq("qr_token", token)
+    .ilike("qr_token", token)
     .maybeSingle();
   if (error) throw error;
   return data?.id ?? null;
