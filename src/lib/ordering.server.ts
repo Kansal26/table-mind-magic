@@ -49,13 +49,26 @@ export async function requireSessionScope(qrToken: string): Promise<SessionScope
   return { sessionId, tableId: table.id, restaurantId: table.restaurant_id };
 }
 
-/** Returns the order only when it belongs to the caller's session. */
-export async function requireOwnedOrder(sessionId: string, orderId: string) {
+/** Resolves a QR token to its table without opening a session. */
+export async function resolveTableId(qrToken: string): Promise<string | null> {
+  const token = qrToken?.trim();
+  if (!token || token.length > 200) return null;
+  const { data, error } = await supabaseAdmin
+    .from("tables")
+    .select("id")
+    .eq("qr_token", token)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.id ?? null;
+}
+
+/** Returns the order only when it belongs to a session at the caller's table. */
+export async function requireOwnedOrder(tableId: string, orderId: string) {
   const { data, error } = await supabaseAdmin
     .from("orders")
-    .select("id, status, subtotal, tax, total, session_id")
+    .select("id, status, subtotal, tax, total, session_id, sessions!inner(table_id)")
     .eq("id", orderId)
-    .eq("session_id", sessionId)
+    .eq("sessions.table_id", tableId)
     .maybeSingle();
   if (error) throw error;
   return data;

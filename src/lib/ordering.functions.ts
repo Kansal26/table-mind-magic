@@ -150,14 +150,14 @@ export const setLineQtyFn = createServerFn({ method: "POST" })
 export const fetchBillFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => orderSchema.parse(data))
   .handler(async ({ data }) => {
-    const { requireSessionScope, requireOwnedOrder, loadOrderLines } = await import(
+    const { resolveTableId, requireOwnedOrder, loadOrderLines } = await import(
       "./ordering.server"
     );
 
-    const scope = await requireSessionScope(data.qrToken);
-    if (!scope) return null;
+    const tableId = await resolveTableId(data.qrToken);
+    if (!tableId) return null;
 
-    const order = await requireOwnedOrder(scope.sessionId, data.orderId);
+    const order = await requireOwnedOrder(tableId, data.orderId);
     if (!order) return null;
 
     return {
@@ -175,15 +175,15 @@ export const fetchBillFn = createServerFn({ method: "POST" })
 export const payOrderFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => orderSchema.parse(data))
   .handler(async ({ data }) => {
-    const { requireSessionScope, requireOwnedOrder, recalcTotals } = await import(
+    const { resolveTableId, requireOwnedOrder, recalcTotals } = await import(
       "./ordering.server"
     );
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    const scope = await requireSessionScope(data.qrToken);
-    if (!scope) throw new Error("This table code is no longer active.");
+    const tableId = await resolveTableId(data.qrToken);
+    if (!tableId) throw new Error("This table code is no longer active.");
 
-    const order = await requireOwnedOrder(scope.sessionId, data.orderId);
+    const order = await requireOwnedOrder(tableId, data.orderId);
     if (!order) throw new Error("We couldn't find that bill.");
     if (order.status === "paid") return { ok: true };
 
@@ -193,13 +193,13 @@ export const payOrderFn = createServerFn({ method: "POST" })
       .from("orders")
       .update({ status: "paid" })
       .eq("id", order.id)
-      .eq("session_id", scope.sessionId);
+      .eq("session_id", order.session_id);
     if (error) throw error;
 
     const { error: sessionError } = await supabaseAdmin
       .from("sessions")
       .update({ status: "closed" })
-      .eq("id", scope.sessionId);
+      .eq("id", order.session_id);
     if (sessionError) throw sessionError;
 
     return { ok: true };
