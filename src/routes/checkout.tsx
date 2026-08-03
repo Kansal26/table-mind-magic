@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, ChevronLeft, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { fetchOrder, fetchOrderLines, money, payOrder } from "@/lib/ordering";
+import { fetchBill, money, payOrder, type CartLine } from "@/lib/ordering";
 
 type CheckoutSearch = { order: string; session: string; table: string };
 
@@ -31,20 +31,16 @@ function CheckoutPage() {
   const queryClient = useQueryClient();
 
   const orderQuery = useQuery({
-    queryKey: ["checkout", orderId],
-    queryFn: async () => {
-      const order = await fetchOrder(orderId);
-      if (!order) return null;
-      return { order, lines: await fetchOrderLines(order.id) };
-    },
-    enabled: !!orderId,
+    queryKey: ["checkout", qrToken, orderId],
+    queryFn: () => fetchBill(qrToken, orderId),
+    enabled: !!orderId && !!qrToken,
   });
 
   const payMutation = useMutation({
-    mutationFn: () => payOrder(orderId, sessionId),
+    mutationFn: () => payOrder(qrToken, orderId),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["checkout", orderId] });
-      queryClient.removeQueries({ queryKey: ["cart", sessionId] });
+      await queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
+      queryClient.removeQueries({ queryKey: ["cart", qrToken, sessionId] });
       queryClient.removeQueries({ queryKey: ["table", qrToken] });
     },
   });
@@ -107,7 +103,7 @@ function CheckoutPage() {
         <h1 className="mt-6 font-display text-3xl text-foreground">Your bill</h1>
 
         <ul className="mt-6 divide-y divide-border rounded-xl border border-border bg-card px-4 shadow-soft">
-          {lines.map((line) => (
+          {lines.map((line: CartLine) => (
             <li key={line.id} className="flex gap-3 py-4">
               <span className="text-sm text-muted-foreground">{line.qty}×</span>
               <div className="min-w-0 flex-1">
