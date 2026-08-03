@@ -67,6 +67,7 @@ function TableMenuPage() {
     queryKey: ["table", qrToken],
     queryFn: () => resolveTable(qrToken),
     staleTime: 5 * 60 * 1000,
+    retry: 2,
   });
   const ctx = tableQuery.data ?? null;
 
@@ -120,6 +121,22 @@ function TableMenuPage() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-background">
         <Loader2 className="size-6 animate-spin text-primary" />
+      </main>
+    );
+  }
+
+  if (tableQuery.isError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background px-6 text-center">
+        <div>
+          <h1 className="font-display text-2xl text-foreground">We couldn't load this table</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Something went wrong reaching the kitchen system. Please try again.
+          </p>
+          <Button className="mt-5" onClick={() => tableQuery.refetch()}>
+            Try again
+          </Button>
+        </div>
       </main>
     );
   }
