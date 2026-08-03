@@ -16,9 +16,8 @@ import {
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   addToCart,
-  fetchCartOrder,
+  fetchCart,
   fetchMenu,
-  fetchOrderLines,
   money,
   resolveTable,
   setLineQty,
@@ -79,21 +78,17 @@ function TableMenuPage() {
   });
 
   const cartQuery = useQuery({
-    queryKey: ["cart", ctx?.sessionId],
-    queryFn: async () => {
-      const order = await fetchCartOrder(ctx!.sessionId);
-      if (!order) return { order: null, lines: [] };
-      return { order, lines: await fetchOrderLines(order.id) };
-    },
+    queryKey: ["cart", qrToken, ctx?.sessionId],
+    queryFn: () => fetchCart(qrToken),
     enabled: !!ctx,
   });
 
   const invalidateCart = () =>
-    queryClient.invalidateQueries({ queryKey: ["cart", ctx?.sessionId] });
+    queryClient.invalidateQueries({ queryKey: ["cart", qrToken, ctx?.sessionId] });
 
   const addMutation = useMutation({
     mutationFn: (input: { menuItemId: string; qty: number; notes: string }) =>
-      addToCart({ sessionId: ctx!.sessionId, ...input }),
+      addToCart({ qrToken, ...input }),
     onSuccess: async () => {
       await invalidateCart();
       setSelected(null);
@@ -102,8 +97,8 @@ function TableMenuPage() {
   });
 
   const qtyMutation = useMutation({
-    mutationFn: (input: { orderId: string; lineId: string; qty: number }) =>
-      setLineQty(input.orderId, input.lineId, input.qty),
+    mutationFn: (input: { lineId: string; qty: number }) =>
+      setLineQty(qrToken, input.lineId, input.qty),
     onSuccess: invalidateCart,
   });
 
@@ -303,7 +298,6 @@ function TableMenuPage() {
                       disabled={qtyMutation.isPending}
                       onClick={() =>
                         qtyMutation.mutate({
-                          orderId: order!.id,
                           lineId: line.id,
                           qty: line.qty - 1,
                         })
@@ -319,7 +313,6 @@ function TableMenuPage() {
                       disabled={qtyMutation.isPending}
                       onClick={() =>
                         qtyMutation.mutate({
-                          orderId: order!.id,
                           lineId: line.id,
                           qty: line.qty + 1,
                         })
