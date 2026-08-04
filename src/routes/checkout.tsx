@@ -1,9 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronLeft, Loader2 } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Loader2, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { fetchBill, money, payOrder, type CartLine } from "@/lib/ordering";
+import { claimOrderFn } from "@/lib/account.functions";
+import { useAuth } from "@/hooks/useAuth";
+import { fetchMyProfile, profileNeedsDietaryInfo } from "@/lib/profile";
 
 type CheckoutSearch = { order: string; session: string; table: string };
 
@@ -29,6 +32,7 @@ function CheckoutPage() {
   const { order: orderId, session: sessionId, table: qrToken } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const orderQuery = useQuery({
     queryKey: ["checkout", qrToken, orderId],
@@ -36,8 +40,24 @@ function CheckoutPage() {
     enabled: !!orderId && !!qrToken,
   });
 
+  const profileQuery = useQuery({
+    queryKey: ["profile", user?.id ?? ""],
+    queryFn: () => fetchMyProfile(user!.id),
+    enabled: !!user,
+  });
+
   const payMutation = useMutation({
-    mutationFn: () => payOrder(qrToken, orderId),
+    mutationFn: async () => {
+      // Signed-in diners get the order attached to their account; guests stay NULL.
+      if (user) {
+        try {
+          await claimOrderFn({ data: { qrToken, orderId } });
+        } catch {
+          // Non-fatal — the order still completes.
+        }
+      }
+      await payOrder(qrToken, orderId);
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
       queryClient.removeQueries({ queryKey: ["cart", qrToken, sessionId] });
@@ -79,6 +99,20 @@ function CheckoutPage() {
           <p className="mt-4 text-xs uppercase tracking-[0.18em] text-muted-foreground">
             Ref {order.id.slice(0, 8)}
           </p>
+          {user && profileNeedsDietaryInfo(profileQuery.data ?? null) && (
+            <div className="mt-6 rounded-xl border border-primary/30 bg-primary/5 p-4 text-left">
+              <p className="text-sm text-foreground">
+                Tell us what you eat and we'll tailor every menu to you next time.
+              </p>
+              <Button
+                className="mt-3 w-full"
+                size="sm"
+                onClick={() => navigate({ to: "/profile" })}
+              >
+                Add dietary preferences
+              </Button>
+            </div>
+          )}
           <Button asChild variant="outline" className="mt-6 w-full">
             <Link to="/table/$qrToken" params={{ qrToken }}>
               Start a new order
@@ -101,6 +135,32 @@ function CheckoutPage() {
         </button>
 
         <h1 className="mt-6 font-display text-3xl text-foreground">Your bill</h1>
+
+        {!user && (
+          <div className="mt-5 flex items-start gap-3 rounded-xl border border-primary/30 bg-primary/5 p-4">
+            <Sparkles className="mt-0.5 size-4 shrink-0 text-primary" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-foreground">
+                Sign in to save your order &amp; earn rewards
+              </p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Optional — you can pay and finish as a guest.
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                navigate({
+                  to: "/auth/login",
+                  search: { redirect: "checkout", table: qrToken, order: orderId },
+                })
+              }
+            >
+              Sign in
+            </Button>
+          </div>
+        )}
 
         <ul className="mt-6 divide-y divide-border rounded-xl border border-border bg-card px-4 shadow-soft">
           {lines.map((line: CartLine) => (
