@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as CheckoutRouteImport } from './routes/checkout'
+import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as TableQrTokenRouteImport } from './routes/table.$qrToken'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const CheckoutRoute = CheckoutRouteImport.update({
   path: '/checkout',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthLoginRoute = AuthLoginRouteImport.update({
+  id: '/auth/login',
+  path: '/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TableQrTokenRoute = TableQrTokenRouteImport.update({
   id: '/table/$qrToken',
   path: '/table/$qrToken',
@@ -32,30 +38,34 @@ const TableQrTokenRoute = TableQrTokenRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/checkout': typeof CheckoutRoute
+  '/auth/login': typeof AuthLoginRoute
   '/table/$qrToken': typeof TableQrTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/checkout': typeof CheckoutRoute
+  '/auth/login': typeof AuthLoginRoute
   '/table/$qrToken': typeof TableQrTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/checkout': typeof CheckoutRoute
+  '/auth/login': typeof AuthLoginRoute
   '/table/$qrToken': typeof TableQrTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/checkout' | '/table/$qrToken'
+  fullPaths: '/' | '/checkout' | '/auth/login' | '/table/$qrToken'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/checkout' | '/table/$qrToken'
-  id: '__root__' | '/' | '/checkout' | '/table/$qrToken'
+  to: '/' | '/checkout' | '/auth/login' | '/table/$qrToken'
+  id: '__root__' | '/' | '/checkout' | '/auth/login' | '/table/$qrToken'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CheckoutRoute: typeof CheckoutRoute
+  AuthLoginRoute: typeof AuthLoginRoute
   TableQrTokenRoute: typeof TableQrTokenRoute
 }
 
@@ -75,6 +85,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CheckoutRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/login': {
+      id: '/auth/login'
+      path: '/auth/login'
+      fullPath: '/auth/login'
+      preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/table/$qrToken': {
       id: '/table/$qrToken'
       path: '/table/$qrToken'
@@ -88,6 +105,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CheckoutRoute: CheckoutRoute,
+  AuthLoginRoute: AuthLoginRoute,
   TableQrTokenRoute: TableQrTokenRoute,
 }
 export const routeTree = rootRouteImport
