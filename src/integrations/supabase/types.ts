@@ -115,6 +115,7 @@ export type Database = {
           subtotal: number
           tax: number
           total: number
+          user_id: string | null
         }
         Insert: {
           created_at?: string
@@ -124,6 +125,7 @@ export type Database = {
           subtotal?: number
           tax?: number
           total?: number
+          user_id?: string | null
         }
         Update: {
           created_at?: string
@@ -133,6 +135,7 @@ export type Database = {
           subtotal?: number
           tax?: number
           total?: number
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -143,6 +146,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      profiles: {
+        Row: {
+          allergens: string[]
+          created_at: string
+          dietary_tags: string[]
+          id: string
+          name: string | null
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          allergens?: string[]
+          created_at?: string
+          dietary_tags?: string[]
+          id: string
+          name?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          allergens?: string[]
+          created_at?: string
+          dietary_tags?: string[]
+          id?: string
+          name?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       restaurants: {
         Row: {
