@@ -84,7 +84,7 @@ export async function resolveTableId(qrToken: string): Promise<string | null> {
 export async function requireOwnedOrder(tableId: string, orderId: string) {
   const { data, error } = await (supabaseAdmin as any)
     .from("orders")
-    .select("id, status, subtotal, tax, discount_amount, credits_applied, use_credits, total, session_id, sessions!inner(table_id)")
+    .select("id, status, subtotal, tax, discount_amount, credits_applied, use_credits, total, session_id, user_id, sessions!inner(table_id)")
     .eq("id", orderId)
     .eq("sessions.table_id", tableId)
     .maybeSingle();
@@ -139,12 +139,17 @@ export async function recalcTotals(orderId: string) {
   const eligibleCoupons = await evaluateCoupons(orderId, lines, subtotal);
 
   if (currentDiscount) {
-    const stillEligible = eligibleCoupons.find(c => c.id === currentDiscount.coupon_id);
-    if (stillEligible) {
-      appliedDiscount = stillEligible.calculated_discount;
-      await (supabaseAdmin as any).from("order_discounts").update({ discount_amount: appliedDiscount }).eq("id", currentDiscount.id);
+    if (currentDiscount.coupon_id === null) {
+      // User explicitly selected "No offer applied"
+      appliedDiscount = 0;
     } else {
-      await (supabaseAdmin as any).from("order_discounts").delete().eq("id", currentDiscount.id);
+      const stillEligible = eligibleCoupons.find(c => c.id === currentDiscount.coupon_id);
+      if (stillEligible) {
+        appliedDiscount = stillEligible.calculated_discount;
+        await (supabaseAdmin as any).from("order_discounts").update({ discount_amount: appliedDiscount }).eq("id", currentDiscount.id);
+      } else {
+        await (supabaseAdmin as any).from("order_discounts").delete().eq("id", currentDiscount.id);
+      }
     }
   } else if (eligibleCoupons.length > 0) {
     // Sort descending by discount amount and pick the highest

@@ -57,6 +57,13 @@ export const applyCouponFn = createServerFn({ method: "POST" })
       coupon_id: data.couponId,
       discount_amount: target.calculated_discount
     });
+  } else {
+    // Explicitly record that no coupon should be applied
+    await (supabaseAdmin as any).from("order_discounts").insert({
+      order_id: order.id,
+      coupon_id: null,
+      discount_amount: 0
+    });
   }
 
   await recalcTotals(order.id);
