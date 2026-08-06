@@ -16,7 +16,8 @@ export const Route = createFileRoute("/admin/tables")({
 
 function AdminTablesPage() {
   const queryClient = useQueryClient();
-  const { restaurant } = Route.useRouteContext();
+  const { restaurant, session } = Route.useRouteContext();
+  const token = session.access_token;
   
   const [showForm, setShowForm] = useState(false);
   const [label, setLabel] = useState("");
@@ -25,17 +26,17 @@ function AdminTablesPage() {
 
   const { data: tables = [] } = useQuery({
     queryKey: ["admin-tables", restaurant.id],
-    queryFn: () => fetchAdminTablesFn({ data: { restaurantId: restaurant.id } }),
+    queryFn: () => fetchAdminTablesFn({ data: { token, restaurantId: restaurant.id } }),
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (opts: { tableId: string, is_active: boolean }) => toggleTableFn({ data: opts }),
+    mutationFn: (opts: { tableId: string, is_active: boolean }) => toggleTableFn({ data: { token, ...opts } }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-tables", restaurant.id] })
   });
 
   const createMutation = useMutation({
     mutationFn: (opts: { label: string, seat_count: number }) => 
-      createTableFn({ data: { restaurantId: restaurant.id, ...opts } }),
+      createTableFn({ data: { token, restaurantId: restaurant.id, ...opts } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-tables", restaurant.id] });
       setShowForm(false);

@@ -1,11 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabaseAdmin, getSupabaseAuthClient } from "@/integrations/supabase/client.server";
+import { verifyAdminAuth, requireRestaurantOwnership } from "./auth.server";
+import { rateLimit } from "./rate-limit.server";
 
 export const fetchAdminMenuFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ restaurantId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
-    const { data: items, error } = await supabaseAdmin
+    const user = await requireRestaurantOwnership(data.token, data.restaurantId);
+    const sb = getSupabaseAuthClient(data.token);
+
+    const { data: items, error } = await sb
       .from("menu_items")
       .select("*")
       .eq("restaurant_id", data.restaurantId)
@@ -21,6 +26,7 @@ export const fetchAdminMenuFn = createServerFn({ method: "POST" })
 export const upsertMenuItemFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => 
     z.object({
+      token: z.string(),
       id: z.string().uuid().optional(),
       restaurant_id: z.string().uuid(),
       name: z.string().min(1),
@@ -38,24 +44,37 @@ export const upsertMenuItemFn = createServerFn({ method: "POST" })
     }).parse(data)
   )
   .handler(async ({ data }) => {
-    if (data.id) {
+    const user = await requireRestaurantOwnership(data.token, data.restaurant_id);
+    rateLimit(user.id, "upsertMenuItem", 100, 15 * 60 * 1000);
+
+    const { token, ...itemData } = data;
+
+    if (itemData.id) {
       const { error } = await supabaseAdmin
         .from("menu_items")
-        .update(data)
-        .eq("id", data.id);
+        .update(itemData)
+        .eq("id", itemData.id);
       if (error) throw error;
     } else {
       const { error } = await supabaseAdmin
         .from("menu_items")
-        .insert(data);
+        .insert(itemData);
       if (error) throw error;
     }
     return { ok: true };
   });
 
 export const softDeleteMenuItemFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ itemId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string(), itemId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    rateLimit(user.id, "softDeleteMenuItem", 100, 15 * 60 * 1000);
+    
+    // Verify ownership
+    const { data: item } = await supabaseAdmin.from("menu_items").select("restaurant_id").eq("id", data.itemId).single();
+    if (!item) throw new Error("Item not found");
+    await requireRestaurantOwnership(data.token, item.restaurant_id);
+
     const { error } = await supabaseAdmin
       .from("menu_items")
       .update({ available: false, is_deleted: true })

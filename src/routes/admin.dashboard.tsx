@@ -12,24 +12,25 @@ export const Route = createFileRoute("/admin/dashboard")({
 
 function AdminDashboardPage() {
   const queryClient = useQueryClient();
-  const { restaurant } = Route.useRouteContext();
+  const { restaurant, session } = Route.useRouteContext();
+  const token = session.access_token;
   const [showCompleted, setShowCompleted] = useState(false);
 
   // Queries
   const loadQuery = useQuery({
     queryKey: ["admin-kitchen-load", restaurant.id],
-    queryFn: () => getKitchenLoadFn({ data: { restaurantId: restaurant.id } }),
+    queryFn: () => getKitchenLoadFn({ data: { token, restaurantId: restaurant.id } }),
     refetchInterval: 30000,
   });
 
   const ordersQuery = useQuery({
     queryKey: ["admin-live-orders", restaurant.id],
-    queryFn: () => fetchLiveOrdersFn({ data: { restaurantId: restaurant.id } }),
+    queryFn: () => fetchLiveOrdersFn({ data: { token, restaurantId: restaurant.id } }),
   });
 
   const analyticsQuery = useQuery({
     queryKey: ["admin-analytics", restaurant.id],
-    queryFn: () => fetchAnalyticsFn({ data: { restaurantId: restaurant.id } }),
+    queryFn: () => fetchAnalyticsFn({ data: { token, restaurantId: restaurant.id } }),
   });
 
   // Realtime Subscription
@@ -49,7 +50,7 @@ function AdminDashboardPage() {
 
   // Mutations
   const updateStatusMutation = useMutation({
-    mutationFn: (opts: { orderId: string, status: any }) => updateKitchenStatusFn({ data: opts }),
+    mutationFn: (opts: { orderId: string, status: any }) => updateKitchenStatusFn({ data: { ...opts, token } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-live-orders", restaurant.id] });
       queryClient.invalidateQueries({ queryKey: ["admin-kitchen-load", restaurant.id] });
@@ -57,7 +58,7 @@ function AdminDashboardPage() {
   });
 
   const clearTableMutation = useMutation({
-    mutationFn: (sessionId: string) => forceCloseSessionFn({ data: { sessionId } }),
+    mutationFn: (sessionId: string) => forceCloseSessionFn({ data: { token, sessionId } }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-live-orders", restaurant.id] });
     }

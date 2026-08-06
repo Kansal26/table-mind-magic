@@ -2,7 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSessionScope, findCartOrder, recalcTotals, loadOrderLines } from "@/lib/ordering.server";
 import { evaluateCoupons } from "@/lib/coupons.server";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabaseAdmin, getSupabaseAuthClient } from "@/integrations/supabase/client.server";
+import { requireRestaurantOwnership } from "./auth.server";
+import { rateLimit } from "./rate-limit.server";
 
 const qrTokenSchema = z.object({ qrToken: z.string().min(1).max(200) });
 const applyCouponSchema = z.object({
@@ -71,10 +73,12 @@ export const applyCouponFn = createServerFn({ method: "POST" })
 });
 
 export const fetchAdminCouponsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ restaurantId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: coupons, error } = await supabaseAdmin
+    const user = await requireRestaurantOwnership(data.token, data.restaurantId);
+    const sb = getSupabaseAuthClient(data.token);
+
+    const { data: coupons, error } = await sb
       .from("coupons")
       .select("*")
       .eq("restaurant_id", data.restaurantId)
@@ -85,20 +89,28 @@ export const fetchAdminCouponsFn = createServerFn({ method: "POST" })
   });
 
 export const toggleCouponFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => data as { couponId: string; active: boolean })
+  .inputValidator((data: unknown) => z.object({ token: z.string(), couponId: z.string().uuid(), active: z.boolean() }).parse(data))
   .handler(async ({ data }) => {
-  await (supabaseAdmin as any).from("coupons").update({ active: data.active }).eq("id", data.couponId);
+    const { data: coupon } = await supabaseAdmin.from("coupons").select("restaurant_id").eq("id", data.couponId).single();
+    if (!coupon) throw new Error("Coupon not found");
+    const user = await requireRestaurantOwnership(data.token, coupon.restaurant_id);
+    rateLimit(user.id, "toggleCoupon", 200, 15 * 60 * 1000);
+
+    await supabaseAdmin.from("coupons").update({ active: data.active }).eq("id", data.couponId);
 });
 
 export const createCouponFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => z.object({
+    token: z.string(),
     restaurantId: z.string().uuid(),
     name: z.string().min(1),
     description: z.string(),
     rule_json: z.any()
   }).parse(data))
   .handler(async ({ data }) => {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const user = await requireRestaurantOwnership(data.token, data.restaurantId);
+    rateLimit(user.id, "createCoupon", 100, 15 * 60 * 1000);
+
     const { error } = await supabaseAdmin
       .from("coupons")
       .insert({

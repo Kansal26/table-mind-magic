@@ -15,7 +15,8 @@ export const Route = createFileRoute("/admin/branding")({
 function AdminBrandingPage() {
   const queryClient = useQueryClient();
   // `restaurant` is already fetched in the layout beforeLoad
-  const { user, restaurant } = Route.useRouteContext();
+  const { user, session, restaurant } = Route.useRouteContext();
+  const token = session.access_token;
   
   const [tagline, setTagline] = useState(restaurant.tagline || "");
   const [logoFile, setLogoFile] = useState<File | null>(null);
@@ -56,6 +57,7 @@ function AdminBrandingPage() {
 
         await updateBrandingFn({
           data: {
+            token,
             restaurantId: restaurant.id,
             tagline,
             logo_url,
@@ -75,7 +77,7 @@ function AdminBrandingPage() {
   });
 
   const removeBannerMutation = useMutation({
-    mutationFn: () => updateBrandingFn({ data: { restaurantId: restaurant.id, banner_url: null } }),
+    mutationFn: () => updateBrandingFn({ data: { token, restaurantId: restaurant.id, banner_url: null } }),
     onSuccess: () => window.location.reload()
   });
 

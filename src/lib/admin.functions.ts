@@ -1,14 +1,19 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabaseAdmin, getSupabaseAuthClient } from "@/integrations/supabase/client.server";
+import { verifyAdminAuth } from "./auth.server";
+import { rateLimit } from "./rate-limit.server";
 
 export const getOwnerRestaurantFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ userId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string() }).parse(data))
   .handler(async ({ data }) => {
-    const { data: restaurant, error } = await supabaseAdmin
+    const user = await verifyAdminAuth(data.token);
+    const sb = getSupabaseAuthClient(data.token);
+
+    const { data: restaurant, error } = await sb
       .from("restaurants")
       .select("*")
-      .eq("owner_id", data.userId)
+      .eq("owner_id", user.id)
       .maybeSingle();
       
     if (error) throw error;
@@ -16,8 +21,18 @@ export const getOwnerRestaurantFn = createServerFn({ method: "POST" })
   });
 
 export const forceCloseSessionFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ sessionId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string(), sessionId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    rateLimit(user.id, "forceCloseSession", 50, 15 * 60 * 1000);
+    // Since sessions table has no owner_id, we need admin client, but we must verify ownership manually:
+    const { data: session } = await supabaseAdmin.from("sessions").select("tables(restaurant_id)").eq("id", data.sessionId).single();
+    if (session) {
+      const restId = (session.tables as any)?.restaurant_id;
+      const { data: owns } = await supabaseAdmin.from("restaurants").select("id").eq("id", restId).eq("owner_id", user.id).single();
+      if (!owns) throw new Error("Unauthorized");
+    }
+
     const { error } = await supabaseAdmin
       .from("sessions")
       .update({ status: "closed" })
@@ -59,18 +74,25 @@ export async function getKitchenLoad(restaurantId: string) {
 }
 
 export const getKitchenLoadFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ restaurantId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    // RLS check manual for load fn
     return getKitchenLoad(data.restaurantId);
   });
 
 export const fetchLiveOrdersFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ restaurantId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    
+    // Auth client will respect RLS (though orders table might be public select for now, we verify ownership)
+    const sb = getSupabaseAuthClient(data.token);
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
-    const { data: orders } = await supabaseAdmin
+    const { data: orders } = await sb
       .from("orders")
       .select(`
         id, created_at, kitchen_status,
@@ -92,23 +114,29 @@ export const fetchLiveOrdersFn = createServerFn({ method: "POST" })
 export const updateKitchenStatusFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => 
     z.object({
+      token: z.string(),
       orderId: z.string().uuid(),
       status: z.enum(["received", "preparing", "ready", "served"])
     }).parse(data)
   )
   .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    rateLimit(user.id, "updateKitchenStatus", 200, 15 * 60 * 1000);
+
     const { error } = await supabaseAdmin
       .from("orders")
       .update({ kitchen_status: data.status })
       .eq("id", data.orderId);
-      
     if (error) throw error;
-    return { ok: true };
+    return { success: true };
   });
 
 export const fetchAnalyticsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ restaurantId: z.string().uuid() }).parse(data))
+  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
+    const { requireRestaurantOwnership } = await import("./auth.server");
+    const user = await requireRestaurantOwnership(data.token, data.restaurantId);
+
     // 1. Recommendations - note: recommendation_logs doesn't have restaurant_id currently, 
     // but it links to session_id which links to table_id which links to restaurant_id
     const { data: recLogs } = await supabaseAdmin

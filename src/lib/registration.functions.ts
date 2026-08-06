@@ -1,11 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { supabaseAdmin, getSupabaseAuthClient } from "@/integrations/supabase/client.server";
+import { verifyAdminAuth } from "./auth.server";
+import { rateLimit } from "./rate-limit.server";
 
 export const registerRestaurantFn = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) => 
     z.object({
-      userId: z.string().uuid(),
+      token: z.string(),
       name: z.string().min(1),
       tagline: z.string().optional(),
       cuisine_type: z.string().optional(),
@@ -16,19 +18,24 @@ export const registerRestaurantFn = createServerFn({ method: "POST" })
     }).parse(data)
   )
   .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    // Strict rate limit for registration (e.g. 5 per day max per user)
+    rateLimit(user.id, "registerRestaurant", 5, 24 * 60 * 60 * 1000);
+    const sb = getSupabaseAuthClient(data.token);
+
     // 1. Check if user already owns a restaurant
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await sb
       .from("restaurants")
       .select("id")
-      .eq("owner_id", data.userId)
+      .eq("owner_id", user.id)
       .maybeSingle();
       
     if (existing) {
       throw new Error("User already owns a restaurant");
     }
 
-    // 2. Create the restaurant
-    const { data: restaurant, error: rError } = await supabaseAdmin
+    // 2. Create the restaurant (RLS allows owner to insert)
+    const { data: restaurant, error: rError } = await sb
       .from("restaurants")
       .insert({
         name: data.name,
@@ -37,7 +44,7 @@ export const registerRestaurantFn = createServerFn({ method: "POST" })
         city: data.city,
         address: data.address,
         logo_url: data.logo_url,
-        owner_id: data.userId,
+        owner_id: user.id,
         is_active: true
       })
       .select("id")
@@ -62,7 +69,7 @@ export const registerRestaurantFn = createServerFn({ method: "POST" })
       });
     }
 
-    const { error: tError } = await supabaseAdmin
+    const { error: tError } = await sb
       .from("tables")
       .insert(tablesToInsert);
 

@@ -15,7 +15,8 @@ export const Route = createFileRoute("/admin/coupons")({
 
 function AdminCouponsPage() {
   const queryClient = useQueryClient();
-  const { restaurant } = Route.useRouteContext();
+  const { restaurant, session } = Route.useRouteContext();
+  const token = session.access_token;
   const [showForm, setShowForm] = useState(false);
   
   // Form State
@@ -30,11 +31,11 @@ function AdminCouponsPage() {
 
   const query = useQuery({
     queryKey: ["admin-coupons", restaurant.id],
-    queryFn: () => fetchAdminCoupons(restaurant.id),
+    queryFn: () => fetchAdminCoupons(token, restaurant.id),
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (opts: { id: string; active: boolean }) => toggleCoupon(opts.id, opts.active),
+    mutationFn: (opts: { id: string; active: boolean }) => toggleCoupon(token, opts.id, opts.active),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-coupons", restaurant.id] }),
   });
 
@@ -46,7 +47,7 @@ function AdminCouponsPage() {
       else if (type === "item_specific") rule = { type, item_id: itemId, discount_pct: pct };
       else rule = { type, start, end, discount_pct: pct };
 
-      await createCoupon({ restaurantId: restaurant.id, name, description: desc, rule_json: rule });
+      await createCoupon(token, { restaurantId: restaurant.id, name, description: desc, rule_json: rule });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-coupons", restaurant.id] });

@@ -12,21 +12,23 @@ import { Textarea } from "@/components/ui/textarea";
 export const Route = createFileRoute("/register-restaurant")({
   ssr: false,
   beforeLoad: async () => {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    const user = session?.user;
+    if (error || !user || !session) {
       throw redirect({ to: "/auth/login", search: { redirect: "/register-restaurant", table: "", order: "" } });
     }
-    const restaurant = await getOwnerRestaurantFn({ data: { userId: user.id } });
+    const restaurant = await getOwnerRestaurantFn({ data: { token: session.access_token } });
     if (restaurant) {
       throw redirect({ to: "/admin/dashboard" });
     }
-    return { user };
+    return { user, session };
   },
   component: RegisterRestaurantPage,
 });
 
 function RegisterRestaurantPage() {
-  const { user } = Route.useRouteContext();
+  const { user, session } = Route.useRouteContext();
+  const token = session.access_token;
   const navigate = useNavigate();
   const [step, setStep] = useState(1);
 
@@ -63,7 +65,7 @@ function RegisterRestaurantPage() {
 
       await registerRestaurantFn({
         data: {
-          userId: user.id,
+          token,
           name,
           tagline,
           cuisine_type: cuisine,

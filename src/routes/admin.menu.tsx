@@ -19,7 +19,8 @@ const DIETARY_OPTIONS = ["vegetarian", "vegan", "non-vegetarian", "jain"];
 
 function AdminMenuPage() {
   const queryClient = useQueryClient();
-  const { user, restaurant } = Route.useRouteContext();
+  const { user, session, restaurant } = Route.useRouteContext();
+  const token = session.access_token;
   
   const [editingItem, setEditingItem] = useState<any>(null);
   const [showForm, setShowForm] = useState(false);
@@ -41,7 +42,7 @@ function AdminMenuPage() {
 
   const { data: menuItems = [] } = useQuery({
     queryKey: ["admin-menu", restaurant.id],
-    queryFn: () => fetchAdminMenuFn({ data: { restaurantId: restaurant.id } }),
+    queryFn: () => fetchAdminMenuFn({ data: { token, restaurantId: restaurant.id } }),
   });
 
   const categories = [...new Set(menuItems.map((i: any) => i.category))];
@@ -80,7 +81,7 @@ function AdminMenuPage() {
   };
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => softDeleteMenuItemFn({ data: { itemId: id } }),
+    mutationFn: (id: string) => softDeleteMenuItemFn({ data: { token, itemId: id } }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-menu", restaurant.id] })
   });
 
@@ -107,6 +108,7 @@ function AdminMenuPage() {
 
       await upsertMenuItemFn({
         data: {
+          token,
           id: editingItem?.id,
           restaurant_id: restaurant.id,
           name,

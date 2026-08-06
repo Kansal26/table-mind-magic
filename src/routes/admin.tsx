@@ -5,18 +5,19 @@ import { getOwnerRestaurantFn } from "@/lib/admin.functions";
 export const Route = createFileRoute("/admin")({
   ssr: false,
   beforeLoad: async () => {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    const user = session?.user;
+    if (error || !user || !session) {
       throw redirect({ to: "/auth/login", search: { redirect: "/admin/dashboard", table: "", order: "" } });
     }
 
-    const restaurant = await getOwnerRestaurantFn({ data: { userId: user.id } });
+    const restaurant = await getOwnerRestaurantFn({ data: { token: session.access_token } });
     
     if (!restaurant) {
       throw redirect({ to: "/register-restaurant" });
     }
 
-    return { user, restaurant };
+    return { user, session, restaurant };
   },
   component: AdminLayout,
 });
