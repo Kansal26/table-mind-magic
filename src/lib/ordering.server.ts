@@ -146,8 +146,9 @@ export async function recalcTotals(orderId: string) {
     } else {
       await (supabaseAdmin as any).from("order_discounts").delete().eq("id", currentDiscount.id);
     }
-  } else if (eligibleCoupons.length === 1) {
-    const best = eligibleCoupons[0];
+  } else if (eligibleCoupons.length > 0) {
+    // Sort descending by discount amount and pick the highest
+    const best = eligibleCoupons.sort((a, b) => b.calculated_discount - a.calculated_discount)[0];
     if (best) {
       appliedDiscount = best.calculated_discount;
       await (supabaseAdmin as any).from("order_discounts").insert({

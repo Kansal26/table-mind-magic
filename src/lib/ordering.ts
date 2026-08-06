@@ -51,6 +51,8 @@ export type Order = {
   subtotal: number;
   tax: number;
   discount_amount: number;
+  credits_applied: number;
+  use_credits: boolean;
   total: number;
 };
 
