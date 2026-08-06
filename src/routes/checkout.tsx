@@ -1,9 +1,12 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronLeft, Loader2, Sparkles } from "lucide-react";
+import { CheckCircle2, ChevronLeft, Loader2, Sparkles, Tag } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { fetchBill, money, payOrder, type CartLine } from "@/lib/ordering";
+import { fetchEligibleCoupons, applyCoupon } from "@/lib/coupons";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { claimOrderFn } from "@/lib/account.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchMyProfile, profileNeedsDietaryInfo } from "@/lib/profile";
@@ -46,6 +49,39 @@ function CheckoutPage() {
     enabled: !!user,
   });
 
+  const couponsQuery = useQuery({
+    queryKey: ["coupons", qrToken, orderId],
+    queryFn: () => fetchEligibleCoupons(qrToken),
+    enabled: !!orderId && !!qrToken,
+  });
+
+  const applyCouponMutation = useMutation({
+    mutationFn: (couponId: string | null) => applyCoupon(qrToken, couponId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
+      await queryClient.invalidateQueries({ queryKey: ["coupons", qrToken, orderId] });
+    },
+  });
+
+  const walletQuery = useQuery({
+    queryKey: ["wallet", user?.id],
+    queryFn: async () => {
+      const { getWalletBalanceFn } = await import("@/lib/wallet.functions");
+      return getWalletBalanceFn({ data: { userId: user!.id } });
+    },
+    enabled: !!user,
+  });
+
+  const toggleCreditsMutation = useMutation({
+    mutationFn: async (useCredits: boolean) => {
+      const { toggleCreditsFn } = await import("@/lib/wallet.functions");
+      return toggleCreditsFn({ data: { qrToken, orderId, useCredits } });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
+    },
+  });
+
   const payMutation = useMutation({
     mutationFn: async () => {
       // Signed-in diners get the order attached to their account; guests stay NULL.
@@ -62,6 +98,9 @@ function CheckoutPage() {
       await queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
       queryClient.removeQueries({ queryKey: ["cart", qrToken, sessionId] });
       queryClient.removeQueries({ queryKey: ["table", qrToken] });
+      if (user) {
+        navigate({ to: "/feedback/$orderId", params: { orderId }, search: { table: qrToken, session: sessionId } });
+      }
     },
   });
 
@@ -186,6 +225,18 @@ function CheckoutPage() {
             <dt>Subtotal</dt>
             <dd>{money(order.subtotal)}</dd>
           </div>
+          {order.discount_amount > 0 && (
+            <div className="flex justify-between text-primary">
+              <dt>Discount</dt>
+              <dd>-{money(order.discount_amount)}</dd>
+            </div>
+          )}
+          {order.credits_applied > 0 && (
+            <div className="flex justify-between text-primary">
+              <dt>Wallet Credits</dt>
+              <dd>-{money(order.credits_applied)}</dd>
+            </div>
+          )}
           <div className="flex justify-between text-muted-foreground">
             <dt>Tax</dt>
             <dd>{money(order.tax)}</dd>
@@ -195,6 +246,66 @@ function CheckoutPage() {
             <dd>{money(order.total)}</dd>
           </div>
         </dl>
+
+        {/* Coupons Section */}
+        {couponsQuery.data && couponsQuery.data.coupons.length > 0 && (
+          <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-soft">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <Tag className="size-4" /> Available Offers
+            </div>
+            {applyCouponMutation.isPending && (
+              <div className="flex justify-center py-4">
+                <Loader2 className="size-5 animate-spin text-primary" />
+              </div>
+            )}
+            {!applyCouponMutation.isPending && (
+              <RadioGroup
+                value={couponsQuery.data.applied || "none"}
+                onValueChange={(val) => applyCouponMutation.mutate(val === "none" ? null : val)}
+              >
+                <div className="flex items-center space-x-2 py-2">
+                  <RadioGroupItem value="none" id="none" />
+                  <Label htmlFor="none" className="cursor-pointer">No offer applied</Label>
+                </div>
+                {couponsQuery.data.coupons.map((c) => (
+                  <div key={c.id} className="flex items-center space-x-2 py-2">
+                    <RadioGroupItem value={c.id} id={c.id} />
+                    <Label htmlFor={c.id} className="cursor-pointer flex-1 flex justify-between">
+                      <span>{c.name} <span className="text-muted-foreground font-normal">(-{money(c.calculated_discount)})</span></span>
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            )}
+          </div>
+        )}
+
+        {/* Credits Section */}
+        {user && walletQuery.data && walletQuery.data.balance > 0 && (
+          <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-soft">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="text-base">Wallet Credits</Label>
+                <p className="text-sm text-muted-foreground">Balance: {money(walletQuery.data.balance)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {toggleCreditsMutation.isPending ? (
+                  <Loader2 className="size-5 animate-spin text-primary" />
+                ) : (
+                  <label className="relative inline-flex cursor-pointer items-center">
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={order.use_credits || false}
+                      onChange={(e) => toggleCreditsMutation.mutate(e.target.checked)}
+                    />
+                    <div className="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none"></div>
+                  </label>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <Button
           className="mt-8 w-full"

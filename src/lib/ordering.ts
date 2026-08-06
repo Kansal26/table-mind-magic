@@ -6,6 +6,7 @@ import {
   payOrderFn,
   resolveTableFn,
   setLineQtyFn,
+  getRecommendationsFn,
 } from "@/lib/ordering.functions";
 
 export const TAX_RATE = 0.085;
@@ -20,6 +21,9 @@ export type MenuItem = {
   dietary_tags: string[];
   available: boolean;
   image_url: string | null;
+  badge: string | null;
+  is_featured: boolean;
+  sort_order: number;
 };
 
 export type CartLine = {
@@ -35,6 +39,9 @@ export type TableContext = {
   restaurantId: string;
   restaurantName: string;
   restaurantAddress: string | null;
+  restaurantTagline: string | null;
+  restaurantLogo: string | null;
+  restaurantBanner: string | null;
   sessionId: string;
 };
 
@@ -43,6 +50,7 @@ export type Order = {
   status: string;
   subtotal: number;
   tax: number;
+  discount_amount: number;
   total: number;
 };
 
@@ -58,8 +66,9 @@ export async function resolveTable(qrToken: string): Promise<TableContext | null
 export async function fetchMenu(restaurantId: string): Promise<MenuItem[]> {
   const { data, error } = await supabase
     .from("menu_items")
-    .select("id, name, description, price, category, allergens, dietary_tags, available, image_url")
+    .select("id, name, description, price, category, allergens, dietary_tags, available, image_url, badge, is_featured, sort_order")
     .eq("restaurant_id", restaurantId)
+    .eq("is_deleted", false)
     .order("category", { ascending: true })
     .order("name", { ascending: true });
   if (error) throw error;
@@ -87,9 +96,16 @@ export async function addToCart(input: {
   menuItemId: string;
   qty: number;
   notes?: string;
+  allergyOverrideAck?: boolean;
 }) {
   const result = await addToCartFn({ data: input });
-  return result.orderId;
+  return result as { orderId: string | null; requiresAllergyAck: boolean; message: string | null };
+}
+
+export type RecommendedItem = MenuItem & { _reason: string };
+
+export async function getRecommendations(qrToken: string): Promise<RecommendedItem[]> {
+  return (await getRecommendationsFn({ data: { qrToken } })) as RecommendedItem[];
 }
 
 export async function setLineQty(qrToken: string, lineId: string, qty: number) {

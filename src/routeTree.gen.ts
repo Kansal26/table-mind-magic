@@ -11,10 +11,19 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AdminRouteImport } from './routes/admin'
 import { Route as CheckoutRouteImport } from './routes/checkout'
+import { Route as RegisterRestaurantRouteImport } from './routes/register-restaurant'
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
+import { Route as AdminBrandingRouteImport } from './routes/admin.branding'
+import { Route as AdminCouponsRouteImport } from './routes/admin.coupons'
+import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
+import { Route as AdminMenuRouteImport } from './routes/admin.menu'
+import { Route as AdminTablesRouteImport } from './routes/admin.tables'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
 import { Route as AuthVerifyRouteImport } from './routes/auth.verify'
+import { Route as FeedbackOrderIdRouteImport } from './routes/feedback.$orderId'
 import { Route as TableQrTokenRouteImport } from './routes/table.$qrToken'
 
 const IndexRoute = IndexRouteImport.update({
@@ -26,15 +35,55 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminRoute = AdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CheckoutRoute = CheckoutRouteImport.update({
   id: '/checkout',
   path: '/checkout',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RegisterRestaurantRoute = RegisterRestaurantRouteImport.update({
+  id: '/register-restaurant',
+  path: '/register-restaurant',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthenticatedProfileRoute = AuthenticatedProfileRouteImport.update({
   id: '/profile',
   path: '/profile',
   getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AdminBrandingRoute = AdminBrandingRouteImport.update({
+  id: '/branding',
+  path: '/branding',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminCouponsRoute = AdminCouponsRouteImport.update({
+  id: '/coupons',
+  path: '/coupons',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminDashboardRoute = AdminDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminMenuRoute = AdminMenuRouteImport.update({
+  id: '/menu',
+  path: '/menu',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminTablesRoute = AdminTablesRouteImport.update({
+  id: '/tables',
+  path: '/tables',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
@@ -46,6 +95,11 @@ const AuthVerifyRoute = AuthVerifyRouteImport.update({
   path: '/auth/verify',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FeedbackOrderIdRoute = FeedbackOrderIdRouteImport.update({
+  id: '/feedback/$orderId',
+  path: '/feedback/$orderId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TableQrTokenRoute = TableQrTokenRouteImport.update({
   id: '/table/$qrToken',
   path: '/table/$qrToken',
@@ -54,64 +108,122 @@ const TableQrTokenRoute = TableQrTokenRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/checkout': typeof CheckoutRoute
+  '/register-restaurant': typeof RegisterRestaurantRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/admin/branding': typeof AdminBrandingRoute
+  '/admin/coupons': typeof AdminCouponsRoute
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/menu': typeof AdminMenuRoute
+  '/admin/tables': typeof AdminTablesRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/verify': typeof AuthVerifyRoute
+  '/feedback/$orderId': typeof FeedbackOrderIdRoute
   '/table/$qrToken': typeof TableQrTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/admin': typeof AdminRouteWithChildren
   '/checkout': typeof CheckoutRoute
+  '/register-restaurant': typeof RegisterRestaurantRoute
   '/profile': typeof AuthenticatedProfileRoute
+  '/admin/branding': typeof AdminBrandingRoute
+  '/admin/coupons': typeof AdminCouponsRoute
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/menu': typeof AdminMenuRoute
+  '/admin/tables': typeof AdminTablesRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/verify': typeof AuthVerifyRoute
+  '/feedback/$orderId': typeof FeedbackOrderIdRoute
   '/table/$qrToken': typeof TableQrTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/admin': typeof AdminRouteWithChildren
   '/checkout': typeof CheckoutRoute
+  '/register-restaurant': typeof RegisterRestaurantRoute
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
+  '/admin/branding': typeof AdminBrandingRoute
+  '/admin/coupons': typeof AdminCouponsRoute
+  '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/menu': typeof AdminMenuRoute
+  '/admin/tables': typeof AdminTablesRoute
+  '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
   '/auth/verify': typeof AuthVerifyRoute
+  '/feedback/$orderId': typeof FeedbackOrderIdRoute
   '/table/$qrToken': typeof TableQrTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/admin'
     | '/checkout'
+    | '/register-restaurant'
     | '/profile'
+    | '/admin/branding'
+    | '/admin/coupons'
+    | '/admin/dashboard'
+    | '/admin/menu'
+    | '/admin/tables'
+    | '/auth/callback'
     | '/auth/login'
     | '/auth/verify'
+    | '/feedback/$orderId'
     | '/table/$qrToken'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/admin'
     | '/checkout'
+    | '/register-restaurant'
     | '/profile'
+    | '/admin/branding'
+    | '/admin/coupons'
+    | '/admin/dashboard'
+    | '/admin/menu'
+    | '/admin/tables'
+    | '/auth/callback'
     | '/auth/login'
     | '/auth/verify'
+    | '/feedback/$orderId'
     | '/table/$qrToken'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/admin'
     | '/checkout'
+    | '/register-restaurant'
     | '/_authenticated/profile'
+    | '/admin/branding'
+    | '/admin/coupons'
+    | '/admin/dashboard'
+    | '/admin/menu'
+    | '/admin/tables'
+    | '/auth/callback'
     | '/auth/login'
     | '/auth/verify'
+    | '/feedback/$orderId'
     | '/table/$qrToken'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AdminRoute: typeof AdminRouteWithChildren
   CheckoutRoute: typeof CheckoutRoute
+  RegisterRestaurantRoute: typeof RegisterRestaurantRoute
+  AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
   AuthVerifyRoute: typeof AuthVerifyRoute
+  FeedbackOrderIdRoute: typeof FeedbackOrderIdRoute
   TableQrTokenRoute: typeof TableQrTokenRoute
 }
 
@@ -131,11 +243,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin': {
+      id: '/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/checkout': {
       id: '/checkout'
       path: '/checkout'
       fullPath: '/checkout'
       preLoaderRoute: typeof CheckoutRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/register-restaurant': {
+      id: '/register-restaurant'
+      path: '/register-restaurant'
+      fullPath: '/register-restaurant'
+      preLoaderRoute: typeof RegisterRestaurantRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated/profile': {
@@ -144,6 +270,48 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile'
       preLoaderRoute: typeof AuthenticatedProfileRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/admin/branding': {
+      id: '/admin/branding'
+      path: '/branding'
+      fullPath: '/admin/branding'
+      preLoaderRoute: typeof AdminBrandingRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/coupons': {
+      id: '/admin/coupons'
+      path: '/coupons'
+      fullPath: '/admin/coupons'
+      preLoaderRoute: typeof AdminCouponsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/dashboard': {
+      id: '/admin/dashboard'
+      path: '/dashboard'
+      fullPath: '/admin/dashboard'
+      preLoaderRoute: typeof AdminDashboardRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/menu': {
+      id: '/admin/menu'
+      path: '/menu'
+      fullPath: '/admin/menu'
+      preLoaderRoute: typeof AdminMenuRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/tables': {
+      id: '/admin/tables'
+      path: '/tables'
+      fullPath: '/admin/tables'
+      preLoaderRoute: typeof AdminTablesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/auth/login': {
       id: '/auth/login'
@@ -157,6 +325,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/verify'
       fullPath: '/auth/verify'
       preLoaderRoute: typeof AuthVerifyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/feedback/$orderId': {
+      id: '/feedback/$orderId'
+      path: '/feedback/$orderId'
+      fullPath: '/feedback/$orderId'
+      preLoaderRoute: typeof FeedbackOrderIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/table/$qrToken': {
@@ -180,12 +355,34 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
 const AuthenticatedRouteRouteWithChildren =
   AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
 
+interface AdminRouteChildren {
+  AdminBrandingRoute: typeof AdminBrandingRoute
+  AdminCouponsRoute: typeof AdminCouponsRoute
+  AdminDashboardRoute: typeof AdminDashboardRoute
+  AdminMenuRoute: typeof AdminMenuRoute
+  AdminTablesRoute: typeof AdminTablesRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminBrandingRoute: AdminBrandingRoute,
+  AdminCouponsRoute: AdminCouponsRoute,
+  AdminDashboardRoute: AdminDashboardRoute,
+  AdminMenuRoute: AdminMenuRoute,
+  AdminTablesRoute: AdminTablesRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AdminRoute: AdminRouteWithChildren,
   CheckoutRoute: CheckoutRoute,
+  RegisterRestaurantRoute: RegisterRestaurantRoute,
+  AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
   AuthVerifyRoute: AuthVerifyRoute,
+  FeedbackOrderIdRoute: FeedbackOrderIdRoute,
   TableQrTokenRoute: TableQrTokenRoute,
 }
 export const routeTree = rootRouteImport

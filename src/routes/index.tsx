@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   QrCode,
   Sparkles,
@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Reveal } from "@/components/landing/Reveal";
 import { PhoneMockup } from "@/components/landing/PhoneMockup";
+import { useAuth } from "@/hooks/useAuth";
 
 const TITLE = "TableMind — QR menus that know your diners";
 const DESCRIPTION =
@@ -112,6 +113,11 @@ const ownerPillars = [
 ];
 
 function Index() {
+  const { user } = useAuth();
+
+  const getStartedTo = user ? "/table/$qrToken" : "/auth/login";
+  const getStartedParams = user ? { qrToken: "demo-table-12" } : undefined;
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       {/* NAV */}
@@ -134,12 +140,32 @@ function Index() {
               For restaurants
             </a>
           </nav>
-          <a
-            href="#demo"
-            className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground transition-colors hover:bg-primary"
-          >
-            Book a demo
-          </a>
+          <div className="flex items-center gap-4">
+            {user ? (
+              <>
+                <Link
+                  to="/admin/dashboard"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+                >
+                  Restaurant Dashboard
+                </Link>
+                <Link
+                  to={getStartedTo as any}
+                  params={getStartedParams}
+                  className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground transition-colors hover:bg-primary"
+                >
+                  Order Food
+                </Link>
+              </>
+            ) : (
+              <Link
+                to="/auth/login"
+                className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground transition-colors hover:bg-primary"
+              >
+                Sign In / Get Started
+              </Link>
+            )}
+          </div>
         </div>
       </header>
 
@@ -159,12 +185,13 @@ function Index() {
               voice orders and applies the right discount on its own.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-x-7 gap-y-4">
-              <a
-                href="#demo"
+              <Link
+                to={getStartedTo as any}
+                params={getStartedParams}
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-soft transition-colors hover:bg-primary-deep"
               >
-                Book a demo <ArrowRight className="size-4" />
-              </a>
+                Get Started <ArrowRight className="size-4" />
+              </Link>
               <a
                 href="#how"
                 className="text-sm font-medium text-muted-foreground underline-offset-4 transition-colors hover:text-foreground hover:underline"
@@ -269,12 +296,13 @@ function Index() {
                 TableMind reads live kitchen load and guest history at the same time, so what gets
                 recommended is both what the diner wants and what your pass can actually deliver.
               </p>
-              <a
-                href="#demo"
+              <Link
+                to={getStartedTo as any}
+                params={getStartedParams}
                 className="mt-8 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-deep"
               >
                 Talk to us about your restaurant <ArrowRight className="size-4" />
-              </a>
+              </Link>
             </Reveal>
             <Reveal delay={120}>
               {/* dashboard mockup */}
@@ -378,12 +406,13 @@ function Index() {
             <p className="mx-auto mt-5 max-w-xl text-sm text-primary-foreground/80 sm:text-base">
               See TableMind running on your own menu in a 20-minute walkthrough.
             </p>
-            <a
-              href="#demo"
+            <Link
+              to={getStartedTo as any}
+              params={getStartedParams}
               className="mt-9 inline-flex items-center gap-2 rounded-full bg-secondary px-7 py-3.5 text-sm font-semibold text-secondary-foreground transition-transform hover:-translate-y-0.5"
             >
-              Book a demo <ArrowRight className="size-4" />
-            </a>
+              Get Started <ArrowRight className="size-4" />
+            </Link>
           </Reveal>
         </div>
       </section>

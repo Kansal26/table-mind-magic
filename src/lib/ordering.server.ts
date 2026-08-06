@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { evaluateCoupons } from "@/lib/coupons.server";
 
 export const TAX_RATE = 0.085;
 
@@ -81,9 +82,9 @@ export async function resolveTableId(qrToken: string): Promise<string | null> {
 
 /** Returns the order only when it belongs to a session at the caller's table. */
 export async function requireOwnedOrder(tableId: string, orderId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await (supabaseAdmin as any)
     .from("orders")
-    .select("id, status, subtotal, tax, total, session_id, sessions!inner(table_id)")
+    .select("id, status, subtotal, tax, discount_amount, credits_applied, use_credits, total, session_id, sessions!inner(table_id)")
     .eq("id", orderId)
     .eq("sessions.table_id", tableId)
     .maybeSingle();
@@ -125,19 +126,67 @@ export async function recalcTotals(orderId: string) {
   const lines = await loadOrderLines(orderId);
   const subtotal =
     Math.round(lines.reduce((sum, line) => sum + line.menu_item.price * line.qty, 0) * 100) / 100;
-  const tax = Math.round(subtotal * TAX_RATE * 100) / 100;
-  const total = Math.round((subtotal + tax) * 100) / 100;
-  const { error } = await supabaseAdmin
+
+  // DISCOUNT LOGIC
+  let appliedDiscount = 0;
+
+  const { data: currentDiscount } = await (supabaseAdmin as any)
+    .from("order_discounts")
+    .select("id, coupon_id")
+    .eq("order_id", orderId)
+    .single();
+
+  const eligibleCoupons = await evaluateCoupons(orderId, lines, subtotal);
+
+  if (currentDiscount) {
+    const stillEligible = eligibleCoupons.find(c => c.id === currentDiscount.coupon_id);
+    if (stillEligible) {
+      appliedDiscount = stillEligible.calculated_discount;
+      await (supabaseAdmin as any).from("order_discounts").update({ discount_amount: appliedDiscount }).eq("id", currentDiscount.id);
+    } else {
+      await (supabaseAdmin as any).from("order_discounts").delete().eq("id", currentDiscount.id);
+    }
+  } else if (eligibleCoupons.length === 1) {
+    const best = eligibleCoupons[0];
+    if (best) {
+      appliedDiscount = best.calculated_discount;
+      await (supabaseAdmin as any).from("order_discounts").insert({
+        order_id: orderId,
+        coupon_id: best.id,
+        discount_amount: appliedDiscount
+      });
+    }
+  }
+
+  const { data: order } = await (supabaseAdmin as any)
     .from("orders")
-    .update({ subtotal, tax, total })
+    .select("user_id, use_credits")
+    .eq("id", orderId)
+    .single();
+
+  let creditsApplied = 0;
+  if (order?.use_credits && order?.user_id) {
+    const { getWalletBalance } = await import("./wallet.server");
+    const balance = await getWalletBalance(order.user_id);
+    const maxCredits = Math.max(0, subtotal - appliedDiscount);
+    creditsApplied = Math.min(balance, maxCredits);
+  }
+
+  const taxableAmount = Math.max(0, subtotal - appliedDiscount - creditsApplied);
+  const tax = Math.round(taxableAmount * TAX_RATE * 100) / 100;
+  const total = Math.max(0, Math.round((taxableAmount + tax) * 100) / 100);
+  
+  const { error } = await (supabaseAdmin as any)
+    .from("orders")
+    .update({ subtotal, tax, discount_amount: appliedDiscount, credits_applied: creditsApplied, total })
     .eq("id", orderId);
   if (error) throw error;
 }
 
 export async function findCartOrder(sessionId: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await (supabaseAdmin as any)
     .from("orders")
-    .select("id, status, subtotal, tax, total")
+    .select("id, status, subtotal, tax, discount_amount, credits_applied, use_credits, total, user_id")
     .eq("session_id", sessionId)
     .eq("status", "cart")
     .order("created_at", { ascending: false })
@@ -147,12 +196,17 @@ export async function findCartOrder(sessionId: string) {
   return data;
 }
 
-export async function ensureCartOrder(sessionId: string): Promise<string> {
+export async function ensureCartOrder(sessionId: string, userId?: string | null): Promise<string> {
   const existing = await findCartOrder(sessionId);
-  if (existing) return existing.id;
+  if (existing) {
+    if (userId && !existing.user_id) {
+      await supabaseAdmin.from("orders").update({ user_id: userId }).eq("id", existing.id);
+    }
+    return existing.id;
+  }
   const { data, error } = await supabaseAdmin
     .from("orders")
-    .insert({ session_id: sessionId, status: "cart" })
+    .insert({ session_id: sessionId, status: "cart", user_id: userId ?? null })
     .select("id")
     .single();
   if (error) throw error;

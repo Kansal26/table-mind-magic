@@ -14,7 +14,6 @@ export const ALLERGENS = [
 
 export type Profile = {
   id: string;
-  phone: string | null;
   name: string | null;
   dietary_tags: string[];
   allergens: string[];
@@ -24,7 +23,7 @@ export type Profile = {
 export async function fetchMyProfile(userId: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, phone, name, dietary_tags, allergens")
+    .select("id, name, dietary_tags, allergens")
     .eq("id", userId)
     .maybeSingle();
   if (error) throw error;
@@ -33,7 +32,6 @@ export async function fetchMyProfile(userId: string): Promise<Profile | null> {
 
 export async function saveMyProfile(input: {
   userId: string;
-  phone: string | null;
   name: string;
   dietary_tags: string[];
   allergens: string[];
@@ -43,14 +41,13 @@ export async function saveMyProfile(input: {
     .upsert(
       {
         id: input.userId,
-        phone: input.phone,
         name: input.name.trim() || null,
         dietary_tags: input.dietary_tags,
         allergens: input.allergens,
       },
       { onConflict: "id" },
     )
-    .select("id, phone, name, dietary_tags, allergens")
+    .select("id, name, dietary_tags, allergens")
     .single();
   if (error) throw error;
   return data as Profile;
