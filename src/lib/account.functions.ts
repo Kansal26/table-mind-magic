@@ -14,7 +14,7 @@ const claimSchema = z.object({
  */
 export const claimOrderFn = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: unknown) => claimSchema.parse(data))
+  .validator((data: unknown) => claimSchema.parse(data))
   .handler(async ({ data, context }) => {
     const { resolveTableId, requireOwnedOrder } = await import("./ordering.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");

@@ -7,7 +7,7 @@ const parseVoiceOrderSchema = z.object({
 });
 
 export const parseVoiceOrderFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => parseVoiceOrderSchema.parse(data))
+  .validator((data: unknown) => parseVoiceOrderSchema.parse(data))
   .handler(async ({ data }) => {
     const { parseVoiceTranscript } = await import("./voice.server");
     return parseVoiceTranscript(data.qrToken, data.transcript);

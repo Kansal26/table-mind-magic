@@ -5,7 +5,7 @@ import { verifyAdminAuth } from "./auth.server";
 import { rateLimit } from "./rate-limit.server";
 
 export const getOwnerRestaurantFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string() }).parse(data))
   .handler(async ({ data }) => {
     const user = await verifyAdminAuth(data.token);
     const sb = getSupabaseAuthClient(data.token);
@@ -21,7 +21,7 @@ export const getOwnerRestaurantFn = createServerFn({ method: "POST" })
   });
 
 export const forceCloseSessionFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), sessionId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), sessionId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const user = await verifyAdminAuth(data.token);
     rateLimit(user.id, "forceCloseSession", 50, 15 * 60 * 1000);
@@ -74,7 +74,7 @@ export async function getKitchenLoad(restaurantId: string) {
 }
 
 export const getKitchenLoadFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const user = await verifyAdminAuth(data.token);
     // RLS check manual for load fn
@@ -82,7 +82,7 @@ export const getKitchenLoadFn = createServerFn({ method: "POST" })
   });
 
 export const fetchLiveOrdersFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const user = await verifyAdminAuth(data.token);
     
@@ -112,7 +112,7 @@ export const fetchLiveOrdersFn = createServerFn({ method: "POST" })
   });
 
 export const updateKitchenStatusFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => 
+  .validator((data: unknown) => 
     z.object({
       token: z.string(),
       orderId: z.string().uuid(),
@@ -132,7 +132,7 @@ export const updateKitchenStatusFn = createServerFn({ method: "POST" })
   });
 
 export const fetchAnalyticsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const { requireRestaurantOwnership } = await import("./auth.server");
     const user = await requireRestaurantOwnership(data.token, data.restaurantId);

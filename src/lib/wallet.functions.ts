@@ -11,7 +11,7 @@ const submitFeedbackSchema = z.object({
 });
 
 export const submitFeedbackFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => submitFeedbackSchema.parse(data))
+  .validator((data: unknown) => submitFeedbackSchema.parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { processFeedbackSubmission } = await import("./wallet.server");
@@ -57,7 +57,7 @@ const toggleCreditsSchema = z.object({
 });
 
 export const toggleCreditsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => toggleCreditsSchema.parse(data))
+  .validator((data: unknown) => toggleCreditsSchema.parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { recalcTotals, requireOwnedOrder, resolveTableId } = await import("./ordering.server");
@@ -84,7 +84,7 @@ export const toggleCreditsFn = createServerFn({ method: "POST" })
   });
 
 export const checkFeedbackExistsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ orderId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ orderId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { count } = await (supabaseAdmin as any)
@@ -95,7 +95,7 @@ export const checkFeedbackExistsFn = createServerFn({ method: "POST" })
   });
 
 export const getWalletBalanceFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ userId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ userId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { data: wallet } = await (supabaseAdmin as any)

@@ -139,6 +139,8 @@ function CheckoutPage() {
           description: "Order Payment",
           order_id: rpOrder.order_id,
           handler: async function (response: any) {
+            console.log('[CHECKOUT] Payment success handler triggered');
+            console.log('[CHECKOUT] Calling verify/pay function...');
             try {
               await verifyRazorpayPayment(qrToken, orderId, {
                 razorpay_order_id: response.razorpay_order_id,

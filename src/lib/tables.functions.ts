@@ -5,7 +5,7 @@ import { requireRestaurantOwnership } from "./auth.server";
 import { rateLimit } from "./rate-limit.server";
 
 export const fetchAdminTablesFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const user = await requireRestaurantOwnership(data.token, data.restaurantId);
     const sb = getSupabaseAuthClient(data.token);
@@ -21,7 +21,7 @@ export const fetchAdminTablesFn = createServerFn({ method: "POST" })
   });
 
 export const toggleTableFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), tableId: z.string().uuid(), is_active: z.boolean() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), tableId: z.string().uuid(), is_active: z.boolean() }).parse(data))
   .handler(async ({ data }) => {
     // Need to verify ownership
     const { data: table } = await supabaseAdmin.from("tables").select("restaurant_id").eq("id", data.tableId).single();
@@ -38,7 +38,7 @@ export const toggleTableFn = createServerFn({ method: "POST" })
   });
 
 export const createTableFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({
+  .validator((data: unknown) => z.object({
     token: z.string(),
     restaurantId: z.string().uuid(),
     label: z.string().min(1),

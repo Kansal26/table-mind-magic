@@ -5,7 +5,7 @@ import { verifyAdminAuth } from "./auth.server";
 import { rateLimit } from "./rate-limit.server";
 
 export const registerRestaurantFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => 
+  .validator((data: unknown) => 
     z.object({
       token: z.string(),
       name: z.string().min(1),

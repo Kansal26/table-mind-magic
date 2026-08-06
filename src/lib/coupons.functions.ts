@@ -13,7 +13,7 @@ const applyCouponSchema = z.object({
 });
 
 export const fetchEligibleCouponsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => qrTokenSchema.parse(data))
+  .validator((data: unknown) => qrTokenSchema.parse(data))
   .handler(async ({ data }) => {
   const scope = await requireSessionScope(data.qrToken);
   if (!scope) throw new Error("Invalid table QR code");
@@ -37,7 +37,7 @@ export const fetchEligibleCouponsFn = createServerFn({ method: "POST" })
 });
 
 export const applyCouponFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => applyCouponSchema.parse(data))
+  .validator((data: unknown) => applyCouponSchema.parse(data))
   .handler(async ({ data }) => {
   const scope = await requireSessionScope(data.qrToken);
   if (!scope) throw new Error("Invalid table QR code");
@@ -73,7 +73,7 @@ export const applyCouponFn = createServerFn({ method: "POST" })
 });
 
 export const fetchAdminCouponsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const user = await requireRestaurantOwnership(data.token, data.restaurantId);
     const sb = getSupabaseAuthClient(data.token);
@@ -89,7 +89,7 @@ export const fetchAdminCouponsFn = createServerFn({ method: "POST" })
   });
 
 export const toggleCouponFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), couponId: z.string().uuid(), active: z.boolean() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), couponId: z.string().uuid(), active: z.boolean() }).parse(data))
   .handler(async ({ data }) => {
     const { data: coupon } = await supabaseAdmin.from("coupons").select("restaurant_id").eq("id", data.couponId).single();
     if (!coupon) throw new Error("Coupon not found");
@@ -100,7 +100,7 @@ export const toggleCouponFn = createServerFn({ method: "POST" })
 });
 
 export const createCouponFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({
+  .validator((data: unknown) => z.object({
     token: z.string(),
     restaurantId: z.string().uuid(),
     name: z.string().min(1),

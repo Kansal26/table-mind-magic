@@ -5,7 +5,7 @@ import { verifyAdminAuth, requireRestaurantOwnership } from "./auth.server";
 import { rateLimit } from "./rate-limit.server";
 
 export const fetchAdminMenuFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const user = await requireRestaurantOwnership(data.token, data.restaurantId);
     const sb = getSupabaseAuthClient(data.token);
@@ -24,7 +24,7 @@ export const fetchAdminMenuFn = createServerFn({ method: "POST" })
   });
 
 export const upsertMenuItemFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => 
+  .validator((data: unknown) => 
     z.object({
       token: z.string(),
       id: z.string().uuid().optional(),
@@ -65,7 +65,7 @@ export const upsertMenuItemFn = createServerFn({ method: "POST" })
   });
 
 export const softDeleteMenuItemFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => z.object({ token: z.string(), itemId: z.string().uuid() }).parse(data))
+  .validator((data: unknown) => z.object({ token: z.string(), itemId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const user = await verifyAdminAuth(data.token);
     rateLimit(user.id, "softDeleteMenuItem", 100, 15 * 60 * 1000);

@@ -42,7 +42,7 @@ const verifyRazorpaySchema = z.object({
 });
 
 export const resolveTableFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => qrTokenSchema.parse(data))
+  .validator((data: unknown) => qrTokenSchema.parse(data))
   .handler(async ({ data }) => {
     const { requireSessionScope } = await import("./ordering.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -80,7 +80,7 @@ export const resolveTableFn = createServerFn({ method: "POST" })
   });
 
 export const joinSessionFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => joinSessionSchema.parse(data))
+  .validator((data: unknown) => joinSessionSchema.parse(data))
   .handler(async ({ data }) => {
     const { requireSessionScope, recordSessionActivity } = await import("./ordering.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -151,7 +151,7 @@ export const joinSessionFn = createServerFn({ method: "POST" })
   });
 
 export const fetchCartFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => qrTokenSchema.parse(data))
+  .validator((data: unknown) => qrTokenSchema.parse(data))
   .handler(async ({ data }) => {
     const { requireSessionScope, findCartOrder, loadOrderLines } = await import(
       "./ordering.server"
@@ -175,7 +175,7 @@ export const fetchCartFn = createServerFn({ method: "POST" })
   });
 
 export const addToCartFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => addToCartSchema.parse(data))
+  .validator((data: unknown) => addToCartSchema.parse(data))
   .handler(async ({ data }) => {
     const { requireSessionScope, ensureCartOrder, recalcTotals } = await import(
       "./ordering.server"
@@ -263,7 +263,7 @@ const recommendationsSchema = z.object({
 });
 
 export const getRecommendationsFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => recommendationsSchema.parse(data))
+  .validator((data: unknown) => recommendationsSchema.parse(data))
   .handler(async ({ data }) => {
     const { requireSessionScope } = await import("./ordering.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
@@ -626,7 +626,7 @@ IMPORTANT RULES:
   });
 
 export const setLineQtyFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => lineQtySchema.parse(data))
+  .validator((data: unknown) => lineQtySchema.parse(data))
   .handler(async ({ data }) => {
     const { requireSessionScope, findCartOrder, recalcTotals } = await import(
       "./ordering.server"
@@ -663,7 +663,7 @@ export const setLineQtyFn = createServerFn({ method: "POST" })
   });
 
 export const fetchBillFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => orderSchema.parse(data))
+  .validator((data: unknown) => orderSchema.parse(data))
   .handler(async ({ data }) => {
     const { resolveTableId, requireOwnedOrder, loadOrderLines } = await import(
       "./ordering.server"
@@ -691,8 +691,9 @@ export const fetchBillFn = createServerFn({ method: "POST" })
   });
 
 export const payOrderFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => orderSchema.parse(data))
+  .validator((data: unknown) => orderSchema.parse(data))
   .handler(async ({ data }) => {
+    console.log('[PAY] payOrderFn called');
     const { resolveTableId, requireOwnedOrder, recalcTotals } = await import(
       "./ordering.server"
     );
@@ -732,11 +733,85 @@ export const payOrderFn = createServerFn({ method: "POST" })
       .eq("id", order.session_id);
     if (sessionError) throw sessionError;
 
+    // Send Email Notification
+    try {
+      const { sendNewOrderNotification } = await import("./email.server");
+      
+      const { data: tableData } = await (supabaseAdmin as any)
+        .from("tables")
+        .select("label, restaurant_id")
+        .eq("id", tableId)
+        .single();
+        
+      if (!tableData) console.log('[PAY] DIAGNOSTIC: tableData is falsy');
+        
+      if (tableData) {
+        const { data: restData } = await (supabaseAdmin as any)
+          .from("restaurants")
+          .select("name, owner_id")
+          .eq("id", tableData.restaurant_id)
+          .single();
+          
+        if (!restData) console.log('[PAY] DIAGNOSTIC: restData is falsy');
+          
+        if (restData) {
+          let ownerEmail = process.env.RESTAURANT_NOTIFICATION_EMAIL;
+          console.log('[PAY] DIAGNOSTIC: Fallback email from env:', ownerEmail);
+          
+          if (restData.owner_id) {
+            console.log('[PAY] DIAGNOSTIC: Fetching owner email for ID:', restData.owner_id);
+            const { data: { user: ownerUser }, error: userError } = await supabaseAdmin.auth.admin.getUserById(restData.owner_id);
+            if (userError) console.error('[PAY] DIAGNOSTIC: getUserById error:', userError);
+            if (ownerUser?.email) {
+              ownerEmail = ownerUser.email;
+              console.log('[PAY] DIAGNOSTIC: Found owner email from auth:', ownerEmail);
+            } else {
+              console.log('[PAY] DIAGNOSTIC: ownerUser or ownerUser.email is missing');
+            }
+          }
+          
+          if (!ownerEmail) console.log('[PAY] DIAGNOSTIC: ownerEmail is falsy');
+          
+          if (ownerEmail) {
+            const { data: items } = await (supabaseAdmin as any)
+              .from("order_items")
+              .select("qty, customizations, menu_items(name)")
+              .eq("order_id", order.id);
+              
+            const formattedItems = (items || []).map((i: any) => ({
+              name: i.menu_items?.name || "Unknown Item",
+              qty: i.qty,
+              customizations: i.customizations
+            }));
+
+            console.log('[PAY] Step 6: Data fetched, sending email');
+            console.log('[Email] Attempting to send order notification...');
+            console.log('[Email] Restaurant:', restData.name);
+            console.log('[Email] Owner email:', ownerEmail);
+            
+            const result = await sendNewOrderNotification({
+              restaurantName: restData.name,
+              tableName: tableData.label,
+              orderItems: formattedItems,
+              subtotal: Number(order.subtotal || 0),
+              discount: Number(order.discount_total || 0),
+              total: Number(order.total || 0),
+              ownerEmail,
+              orderId: order.id
+            });
+            console.log('[Email] Result:', result);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("Failed to trigger order email:", e);
+    }
+
     return { ok: true };
   });
 
 export const createRazorpayOrderFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => orderSchema.parse(data))
+  .validator((data: unknown) => orderSchema.parse(data))
   .handler(async ({ data }) => {
     const { resolveTableId, requireOwnedOrder } = await import("./ordering.server");
 
@@ -785,54 +860,149 @@ export const createRazorpayOrderFn = createServerFn({ method: "POST" })
   });
 
 export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
-  .inputValidator((data: unknown) => verifyRazorpaySchema.parse(data))
+  .validator((data: unknown) => verifyRazorpaySchema.parse(data))
   .handler(async ({ data }) => {
+    console.log('[PAY] verifyRazorpayPaymentFn called');
     const { resolveTableId, requireOwnedOrder, recalcTotals } = await import("./ordering.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
+    console.log('[PAY] Step 1: Starting verification');
     const tableId = await resolveTableId(data.qrToken);
     if (!tableId) throw new Error("This table code is no longer active.");
 
     const order = await requireOwnedOrder(tableId, data.orderId);
     if (!order) throw new Error("We couldn't find that bill.");
-    if (order.status === "paid") return { ok: true };
-
-    const body = data.razorpay_order_id + "|" + data.razorpay_payment_id;
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
-      .update(body.toString())
-      .digest("hex");
-
-    if (expectedSignature !== data.razorpay_signature) {
-      throw new Error("Invalid signature. Payment verification failed.");
+    if (order.status === "paid") {
+      console.log('[PAY] Order already paid. Returning early!');
+      return { ok: true };
     }
 
-    await recalcTotals(order.id);
+    try {
+      const body = data.razorpay_order_id + "|" + data.razorpay_payment_id;
+      const crypto = await import("crypto");
+      const expectedSignature = crypto
+        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
+        .update(body.toString())
+        .digest("hex");
 
-    // Fetch the updated order to get the final credits_applied
-    const { data: updatedOrder } = await (supabaseAdmin as any)
-      .from("orders")
-      .select("credits_applied, user_id")
-      .eq("id", order.id)
-      .single();
-
-    if (updatedOrder && updatedOrder.credits_applied > 0 && updatedOrder.user_id) {
-      const { deductWallet } = await import("./wallet.server");
-      await deductWallet(updatedOrder.user_id, updatedOrder.credits_applied, "Redeemed on order", order.id);
+      if (expectedSignature !== data.razorpay_signature) {
+        throw new Error("Invalid signature. Payment verification failed.");
+      }
+      console.log('[PAY] Step 2: Signature verified');
+    } catch (e) {
+      console.error('[PAY] Step 2 FAILED:', e);
+      throw e;
     }
 
-    const { error } = await supabaseAdmin
-      .from("orders")
-      .update({ status: "paid" })
-      .eq("id", order.id)
-      .eq("session_id", order.session_id);
-    if (error) throw error;
+    console.log('[PAY] Step 3: Updating order status');
+    try {
+      await recalcTotals(order.id);
 
-    const { error: sessionError } = await supabaseAdmin
-      .from("sessions")
-      .update({ status: "closed" })
-      .eq("id", order.session_id);
-    if (sessionError) throw sessionError;
+      // Fetch the updated order to get the final credits_applied
+      const { data: updatedOrder } = await (supabaseAdmin as any)
+        .from("orders")
+        .select("credits_applied, user_id")
+        .eq("id", order.id)
+        .single();
+
+      if (updatedOrder && updatedOrder.credits_applied > 0 && updatedOrder.user_id) {
+        const { deductWallet } = await import("./wallet.server");
+        await deductWallet(updatedOrder.user_id, updatedOrder.credits_applied, "Redeemed on order", order.id);
+      }
+
+      const { error } = await supabaseAdmin
+        .from("orders")
+        .update({ status: "paid" })
+        .eq("id", order.id)
+        .eq("session_id", order.session_id);
+      if (error) throw error;
+
+      const { error: sessionError } = await supabaseAdmin
+        .from("sessions")
+        .update({ status: "closed" })
+        .eq("id", order.session_id);
+      if (sessionError) throw sessionError;
+      
+      console.log('[PAY] Step 4: Order status updated');
+    } catch (e) {
+      console.error('[PAY] Step 4 FAILED:', e);
+      throw e;
+    }
+
+    console.log('[PAY] Step 5: Fetching restaurant/email data');
+    try {
+      const { sendNewOrderNotification } = await import("./email.server");
+      
+      const { data: tableData } = await (supabaseAdmin as any)
+        .from("tables")
+        .select("label, restaurant_id")
+        .eq("id", tableId)
+        .single();
+        
+      if (!tableData) console.log('[PAY] DIAGNOSTIC: tableData is falsy');
+        
+      if (tableData) {
+        const { data: restData } = await (supabaseAdmin as any)
+          .from("restaurants")
+          .select("name, owner_id")
+          .eq("id", tableData.restaurant_id)
+          .single();
+          
+        if (!restData) console.log('[PAY] DIAGNOSTIC: restData is falsy');
+          
+        if (restData) {
+          let ownerEmail = process.env.RESTAURANT_NOTIFICATION_EMAIL;
+          console.log('[PAY] DIAGNOSTIC: Fallback email from env:', ownerEmail);
+          
+          if (restData.owner_id) {
+            console.log('[PAY] DIAGNOSTIC: Fetching owner email for ID:', restData.owner_id);
+            const { data: { user: ownerUser }, error: userError } = await supabaseAdmin.auth.admin.getUserById(restData.owner_id);
+            if (userError) console.error('[PAY] DIAGNOSTIC: getUserById error:', userError);
+            if (ownerUser?.email) {
+              ownerEmail = ownerUser.email;
+              console.log('[PAY] DIAGNOSTIC: Found owner email from auth:', ownerEmail);
+            } else {
+              console.log('[PAY] DIAGNOSTIC: ownerUser or ownerUser.email is missing');
+            }
+          }
+          
+          if (!ownerEmail) console.log('[PAY] DIAGNOSTIC: ownerEmail is falsy');
+          
+          if (ownerEmail) {
+            const { data: items } = await (supabaseAdmin as any)
+              .from("order_items")
+              .select("qty, customizations, menu_items(name)")
+              .eq("order_id", order.id);
+              
+            const formattedItems = (items || []).map((i: any) => ({
+              name: i.menu_items?.name || "Unknown Item",
+              qty: i.qty,
+              customizations: i.customizations
+            }));
+
+            console.log('[PAY] Step 6: Data fetched, sending email');
+            console.log('[Email] Attempting to send order notification...');
+            console.log('[Email] Restaurant:', restData.name);
+            console.log('[Email] Owner email:', ownerEmail);
+            
+            const result = await sendNewOrderNotification({
+              restaurantName: restData.name,
+              tableName: tableData.label,
+              orderItems: formattedItems,
+              subtotal: Number(order.subtotal || 0),
+              discount: Number(order.discount_total || 0),
+              total: Number(order.total || 0),
+              ownerEmail,
+              orderId: order.id
+            });
+            console.log('[Email] Result:', result);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('[PAY] Step 6 FAILED:', e);
+      throw e;
+    }
 
     return { ok: true };
   });
