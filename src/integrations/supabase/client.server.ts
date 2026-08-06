@@ -67,3 +67,26 @@ export const supabaseAdmin = new Proxy({} as ReturnType<typeof createSupabaseAdm
     return Reflect.get(_supabaseAdmin, prop, receiver);
   },
 });
+
+export function getSupabaseAuthClient(token: string) {
+  const SUPABASE_URL = process.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
+  const SUPABASE_ANON_KEY = process.env['VITE_SUPABASE_ANON_KEY'] || process.env['SUPABASE_ANON_KEY'];
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error("Missing Supabase environment variable(s)");
+  }
+  
+  return createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: {
+      fetch: createSupabaseFetch(SUPABASE_ANON_KEY),
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    },
+    auth: {
+      storage: undefined,
+      persistSession: false,
+      autoRefreshToken: false,
+    }
+  });
+}

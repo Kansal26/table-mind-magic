@@ -70,7 +70,7 @@ function CheckoutPage() {
   const participantsQuery = useQuery({
     queryKey: ["participants", qrToken, sessionId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("session_participants").select("*").eq("session_id", sessionId);
+      const { data, error } = await supabase.from("session_participants" as any).select("*").eq("session_id", sessionId);
       if (error) throw error;
       return data;
     },
@@ -131,8 +131,9 @@ function CheckoutPage() {
       const rpOrder = await createRazorpayOrder(qrToken, orderId);
 
       return new Promise<void>((resolve, reject) => {
+        const razorpayKey = (import.meta as any).env.VITE_RAZORPAY_KEY_ID;
         const options = {
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+          key: razorpayKey,
           amount: rpOrder.amount,
           currency: rpOrder.currency,
           name: "TableMind",

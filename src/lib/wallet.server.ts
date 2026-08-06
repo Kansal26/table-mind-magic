@@ -9,7 +9,7 @@ export const CREDIT_RULES = {
 
 export async function getWalletBalance(userId: string): Promise<number> {
   const { data, error } = await supabaseAdmin
-    .from("wallets")
+    .from("wallets" as any)
     .select("balance")
     .eq("user_id", userId)
     .maybeSingle();
@@ -28,7 +28,7 @@ export async function deductWallet(userId: string, amount: number, reason: strin
 
   // Update wallet
   const { error: updateError } = await (supabaseAdmin as any)
-    .from("wallets")
+    .from("wallets" as any)
     .update({ balance: newBalance })
     .eq("user_id", userId);
   if (updateError) throw updateError;
@@ -90,14 +90,14 @@ export async function processFeedbackSubmission(
   if (creditEarned > 0) {
     // Get existing wallet or create
     const { data: wallet } = await (supabaseAdmin as any)
-      .from("wallets")
+      .from("wallets" as any)
       .select("id, balance")
       .eq("user_id", userId)
       .maybeSingle();
 
     if (wallet) {
       await (supabaseAdmin as any)
-        .from("wallets")
+        .from("wallets" as any)
         .update({ balance: Number(wallet.balance) + creditEarned })
         .eq("user_id", userId);
     } else {

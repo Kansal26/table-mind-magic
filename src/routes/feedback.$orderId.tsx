@@ -24,7 +24,9 @@ export const Route = createFileRoute("/feedback/$orderId")({
 
 function FeedbackPage() {
   const { orderId } = Route.useParams();
-  const { table: qrToken, session: sessionId } = Route.useSearch();
+  const searchParams = Route.useSearch() as any;
+  const qrToken = searchParams.table;
+  const sessionId = searchParams.session;
   const navigate = useNavigate();
 
   const [rating, setRating] = useState<number>(0);

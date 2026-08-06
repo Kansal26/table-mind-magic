@@ -1,7 +1,7 @@
 import { useMemo, useState, useRef, useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Minus, Plus, ShoppingBag, Users } from "lucide-react";
+import { Loader2, Minus, Plus, ShoppingBag, Users, Bell } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +26,7 @@ import {
   type MenuItem,
   type RecommendedItem,
 } from "@/lib/ordering";
+import { callWaiter } from "@/lib/waiter";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchMyProfile, type Profile } from "@/lib/profile";
 import { Switch } from "@/components/ui/switch";
@@ -191,6 +192,108 @@ function MenuItemCard({
   );
 }
 
+function CallWaiterButton({ qrToken }: { qrToken: string }) {
+  const [open, setOpen] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const [callId, setCallId] = useState<string | null>(() => localStorage.getItem(`waiter_call_id_${qrToken}`));
+
+  useEffect(() => {
+    const last = localStorage.getItem(`waiter_${qrToken}`);
+    if (last) {
+      const diff = Date.now() - Number(last);
+      if (diff < 120000) {
+        setCooldown(Math.ceil((120000 - diff) / 1000));
+      } else {
+        localStorage.removeItem(`waiter_${qrToken}`);
+        localStorage.removeItem(`waiter_call_id_${qrToken}`);
+        setCallId(null);
+      }
+    }
+  }, [qrToken]);
+
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setInterval(() => setCooldown(c => c - 1), 1000);
+      return () => clearInterval(timer);
+    }
+    return undefined;
+  }, [cooldown]);
+
+  useEffect(() => {
+    if (!callId) return;
+    const channel = supabase.channel(`waiter_call_${callId}`)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'waiter_calls', filter: `id=eq.${callId}` }, (payload: any) => {
+        if (payload.new.status === 'resolved') {
+          setCooldown(0);
+          setCallId(null);
+          localStorage.removeItem(`waiter_${qrToken}`);
+          localStorage.removeItem(`waiter_call_id_${qrToken}`);
+          toast.success("Waiter has arrived! 👋");
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [callId, qrToken]);
+
+  const handleCall = async (reason: string) => {
+    setOpen(false);
+    try {
+      const res = await callWaiter(qrToken, reason);
+      if (res && res.callId) {
+        setCallId(res.callId);
+        localStorage.setItem(`waiter_call_id_${qrToken}`, res.callId);
+      }
+      toast.success("A waiter has been notified 👋");
+      localStorage.setItem(`waiter_${qrToken}`, Date.now().toString());
+      setCooldown(120);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to call waiter");
+      if (e.message?.includes("Already called")) {
+        localStorage.setItem(`waiter_${qrToken}`, Date.now().toString());
+        setCooldown(120);
+      }
+    }
+  };
+
+  return (
+    <>
+      <div className="fixed bottom-44 right-4 z-40">
+        <Button 
+          size="icon" 
+          className="h-14 w-14 rounded-full shadow-lg" 
+          disabled={cooldown > 0}
+          onClick={() => setOpen(true)}
+        >
+          {cooldown > 0 ? (
+            <div className="flex flex-col items-center justify-center">
+              <span className="text-[10px] uppercase font-bold leading-none">Called</span>
+              <span className="text-xs font-bold">{Math.floor(cooldown/60)}:{(cooldown%60).toString().padStart(2, '0')}</span>
+            </div>
+          ) : (
+            <Bell size={24} />
+          )}
+        </Button>
+      </div>
+
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader>
+            <SheetTitle>Call Waiter</SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-col gap-3 mt-6">
+            <Button variant="outline" onClick={() => handleCall('Need assistance')}>Need assistance</Button>
+            <Button variant="outline" onClick={() => handleCall('Request the bill')}>Request the bill</Button>
+            <Button variant="outline" onClick={() => handleCall('Other')}>Other</Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </>
+  );
+}
+
 function TableMenuPage() {
   const { qrToken } = Route.useParams();
   const navigate = useNavigate();
@@ -246,7 +349,7 @@ function TableMenuPage() {
     queryKey: ["participants", qrToken, ctx?.sessionId],
     queryFn: async () => {
       if (!ctx?.sessionId) return [];
-      const { data, error } = await supabase.from("session_participants").select("*").eq("session_id", ctx.sessionId);
+      const { data, error } = await supabase.from("session_participants" as any).select("*").eq("session_id", ctx.sessionId);
       if (error) throw error;
       return data;
     },
@@ -255,7 +358,7 @@ function TableMenuPage() {
 
   const sessionQuery = useQuery({
     queryKey: ["session", qrToken, deviceToken, ctx?.sessionId],
-    queryFn: () => joinSession(qrToken, deviceToken, profileQuery.data?.name),
+    queryFn: () => joinSession(qrToken, deviceToken, profileQuery.data?.name || "Guest"),
     enabled: !!ctx && !!deviceToken,
   });
 
@@ -319,7 +422,7 @@ function TableMenuPage() {
 
   const addMutation = useMutation({
     mutationFn: (input: { menuItemId: string; qty: number; notes: string; allergyOverrideAck?: boolean }) =>
-      addToCart({ qrToken, ...input, deviceToken }),
+      addToCart({ qrToken, ...input, deviceToken: deviceToken || "" }),
     onSuccess: async (data, variables) => {
       if (data.requiresAllergyAck) {
         setAllergyWarning({ ...variables, message: data.message || "Allergy warning" });
@@ -538,6 +641,8 @@ function TableMenuPage() {
           </Button>
         </div>
       )}
+      
+      <CallWaiterButton qrToken={qrToken} />
 
       <Dialog open={!!selected} onOpenChange={(open) => !open && setSelected(null)}>
         <DialogContent className="max-w-md">
@@ -664,7 +769,7 @@ function TableMenuPage() {
             {participantsQuery.data && participantsQuery.data.length > 1 && (
               <div className="flex items-center gap-2 mt-2">
                 <div className="flex -space-x-2">
-                  {participantsQuery.data.map((p) => (
+                  {participantsQuery.data.map((p: any) => (
                     <div key={p.device_token} className="size-6 rounded-full bg-primary/20 border-2 border-background flex items-center justify-center text-[10px] font-bold text-primary">
                       {p.name?.slice(0, 2).toUpperCase() || "?"}
                     </div>

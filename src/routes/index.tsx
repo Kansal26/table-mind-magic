@@ -151,7 +151,7 @@ function Index() {
                 </Link>
                 <Link
                   to={getStartedTo as any}
-                  params={getStartedParams}
+                  params={getStartedParams as any}
                   className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground transition-colors hover:bg-primary"
                 >
                   Order Food
@@ -187,7 +187,7 @@ function Index() {
             <div className="mt-8 flex flex-wrap items-center gap-x-7 gap-y-4">
               <Link
                 to={getStartedTo as any}
-                params={getStartedParams}
+                params={getStartedParams as any}
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-soft transition-colors hover:bg-primary-deep"
               >
                 Get Started <ArrowRight className="size-4" />
@@ -408,7 +408,7 @@ function Index() {
             </p>
             <Link
               to={getStartedTo as any}
-              params={getStartedParams}
+              params={getStartedParams as any}
               className="mt-9 inline-flex items-center gap-2 rounded-full bg-secondary px-7 py-3.5 text-sm font-semibold text-secondary-foreground transition-transform hover:-translate-y-0.5"
             >
               Get Started <ArrowRight className="size-4" />

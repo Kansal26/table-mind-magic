@@ -3,8 +3,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchLiveOrdersFn, updateKitchenStatusFn, fetchAnalyticsFn, getKitchenLoadFn, forceCloseSessionFn } from "@/lib/admin.functions";
+import { fetchAdminWaiterCalls, acknowledgeWaiterCall, resolveWaiterCall } from "@/lib/waiter";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, AlertTriangle, LogOut } from "lucide-react";
+import { ChevronDown, ChevronUp, AlertTriangle, LogOut, Bell, CheckCircle2 } from "lucide-react";
 
 export const Route = createFileRoute("/admin/dashboard")({
   component: AdminDashboardPage,
@@ -15,6 +16,25 @@ function AdminDashboardPage() {
   const { restaurant, session } = Route.useRouteContext();
   const token = session.access_token;
   const [showCompleted, setShowCompleted] = useState(false);
+  const [incomingCall, setIncomingCall] = useState<any>(null);
+
+  const playBeep = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(880, ctx.currentTime); // A5
+      gain.gain.setValueAtTime(0.5, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.5);
+    } catch (e) {
+      console.error("Audio beep failed", e);
+    }
+  };
 
   // Queries
   const loadQuery = useQuery({
@@ -33,6 +53,11 @@ function AdminDashboardPage() {
     queryFn: () => fetchAnalyticsFn({ data: { token, restaurantId: restaurant.id } }),
   });
 
+  const waiterCallsQuery = useQuery({
+    queryKey: ["admin-waiter-calls", restaurant.id],
+    queryFn: () => fetchAdminWaiterCalls(token, restaurant.id),
+  });
+
   // Realtime Subscription
   useEffect(() => {
     const channel = supabase
@@ -43,10 +68,30 @@ function AdminDashboardPage() {
       })
       .subscribe();
 
+    const waiterChannel = supabase
+      .channel("waiter-calls-alert")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "waiter_calls", filter: `restaurant_id=eq.${restaurant.id}` }, async (payload) => {
+        playBeep();
+        
+        // Fetch table name for the banner
+        const { data: tableData } = await supabase.from("tables").select("label").eq("id", payload.new.table_id).single();
+        
+        setIncomingCall({
+          id: payload.new.id,
+          reason: payload.new.reason,
+          table_label: tableData?.label || "Unknown Table",
+          created_at: payload.new.created_at
+        });
+        
+        queryClient.invalidateQueries({ queryKey: ["admin-waiter-calls", restaurant.id] });
+      })
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
+      supabase.removeChannel(waiterChannel);
     };
-  }, [queryClient]);
+  }, [queryClient, restaurant.id]);
 
   // Mutations
   const updateStatusMutation = useMutation({
@@ -64,8 +109,24 @@ function AdminDashboardPage() {
     }
   });
 
-  const liveOrders = ordersQuery.data?.filter(o => o.kitchen_status !== "served") || [];
-  const completedOrders = ordersQuery.data?.filter(o => o.kitchen_status === "served") || [];
+  const ackCallMutation = useMutation({
+    mutationFn: (callId: string) => acknowledgeWaiterCall(token, restaurant.id, callId),
+    onSuccess: () => {
+      setIncomingCall(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-waiter-calls", restaurant.id] });
+    }
+  });
+
+  const resolveCallMutation = useMutation({
+    mutationFn: (callId: string) => resolveWaiterCall(token, restaurant.id, callId),
+    onSuccess: () => {
+      setIncomingCall(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-waiter-calls", restaurant.id] });
+    }
+  });
+
+  const liveOrders = ordersQuery.data?.filter((o: any) => o.kitchen_status !== "served") || [];
+  const completedOrders = ordersQuery.data?.filter((o: any) => o.kitchen_status === "served") || [];
 
   const loadData = loadQuery.data || { level: "low", count: 0 };
   const loadColors = {
@@ -95,12 +156,81 @@ function AdminDashboardPage() {
         </div>
       </div>
 
+      {incomingCall && (
+        <div className="mb-8 p-4 bg-red-100 border border-red-300 rounded-xl flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-3">
+            <Bell className="text-red-600 animate-bounce" size={24} />
+            <div>
+              <h2 className="text-red-900 font-bold text-lg">🔔 {incomingCall.table_label} is calling for assistance!</h2>
+              <p className="text-red-800 text-sm">Reason: {incomingCall.reason} • {new Date(incomingCall.created_at).toLocaleTimeString()}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" className="border-red-300 text-red-700 hover:bg-red-200" onClick={() => ackCallMutation.mutate(incomingCall.id)}>
+              Acknowledge
+            </Button>
+            <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={() => resolveCallMutation.mutate(incomingCall.id)}>
+              Resolve
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {waiterCallsQuery.data && waiterCallsQuery.data.length > 0 && (
+        <div className="mb-8 bg-card border border-border rounded-xl shadow-sm p-6">
+          <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
+            <Bell size={20} className="text-primary" /> Active Waiter Calls
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-border text-sm text-muted-foreground">
+                  <th className="pb-3 font-medium">Table</th>
+                  <th className="pb-3 font-medium">Reason</th>
+                  <th className="pb-3 font-medium">Time</th>
+                  <th className="pb-3 font-medium">Status</th>
+                  <th className="pb-3 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {waiterCallsQuery.data.map((call: any) => (
+                  <tr key={call.id} className="border-b border-border/50 last:border-0">
+                    <td className="py-3 font-medium">{call.table_label}</td>
+                    <td className="py-3 capitalize">{call.reason}</td>
+                    <td className="py-3 text-sm text-muted-foreground">
+                      {Math.floor((Date.now() - new Date(call.created_at).getTime()) / 60000)} mins ago
+                    </td>
+                    <td className="py-3">
+                      <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                        call.status === 'pending' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {call.status}
+                      </span>
+                    </td>
+                    <td className="py-3 text-right space-x-2">
+                      {call.status === 'pending' && (
+                        <Button size="sm" variant="outline" onClick={() => ackCallMutation.mutate(call.id)}>
+                          Ack
+                        </Button>
+                      )}
+                      <Button size="sm" onClick={() => resolveCallMutation.mutate(call.id)}>
+                        <CheckCircle2 size={16} className="mr-1" /> Resolve
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-12">
         <div className="lg:col-span-2 space-y-6">
           <h2 className="text-xl font-semibold">Live Orders</h2>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {liveOrders.map(order => (
+            {liveOrders.map((order: any) => (
               <div key={order.id} className="bg-card border border-border rounded-xl shadow-sm p-4 flex flex-col">
                 <div className="flex justify-between items-start mb-4 border-b border-border pb-3">
                   <div>
@@ -171,7 +301,7 @@ function AdminDashboardPage() {
             
             {showCompleted && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 opacity-75">
-                {completedOrders.map(order => (
+                {completedOrders.map((order: any) => (
                   <div key={order.id} className="bg-muted border border-border rounded-xl p-4 flex flex-col">
                     <div className="flex justify-between items-start mb-4 border-b border-border pb-3">
                       <div>

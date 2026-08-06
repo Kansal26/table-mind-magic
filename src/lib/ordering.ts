@@ -118,6 +118,7 @@ export async function addToCart(input: {
   qty: number;
   notes?: string;
   allergyOverrideAck?: boolean;
+  deviceToken?: string;
 }) {
   const result = await addToCartFn({ data: input });
   return result as { orderId: string | null; requiresAllergyAck: boolean; message: string | null };

@@ -1,4 +1,6 @@
 import { createFileRoute, Outlet, redirect, Link, useLocation } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { getOwnerRestaurantFn } from "@/lib/admin.functions";
 
@@ -8,7 +10,7 @@ export const Route = createFileRoute("/admin")({
     const { data: { session }, error } = await supabase.auth.getSession();
     const user = session?.user;
     if (error || !user || !session) {
-      throw redirect({ to: "/auth/login", search: { redirect: "/admin/dashboard", table: "", order: "" } });
+      throw redirect({ to: "/auth/login", search: { redirect: "/admin/dashboard" } as any });
     }
 
     const restaurant = await getOwnerRestaurantFn({ data: { token: session.access_token } });
@@ -34,6 +36,32 @@ function AdminLayout() {
     { name: "Branding", path: "/admin/branding" },
   ];
 
+  const queryClient = useQueryClient();
+  const token = Route.useRouteContext().session.access_token;
+  
+  const waiterCallsQuery = useQuery({
+    queryKey: ["admin-waiter-calls", restaurant.id],
+    queryFn: async () => {
+      const { fetchAdminWaiterCalls } = await import("@/lib/waiter");
+      return await fetchAdminWaiterCalls(token, restaurant.id);
+    },
+  });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("waiter-calls-badge")
+      .on("postgres_changes", { event: "*", schema: "public", table: "waiter_calls", filter: `restaurant_id=eq.${restaurant.id}` }, () => {
+        queryClient.invalidateQueries({ queryKey: ["admin-waiter-calls", restaurant.id] });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, restaurant.id]);
+
+  const activeCalls = waiterCallsQuery.data?.length || 0;
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border bg-card">
@@ -44,13 +72,18 @@ function AdminLayout() {
               <Link 
                 key={item.path} 
                 to={item.path} 
-                className={`text-sm font-medium transition-colors ${
+                className={`flex items-center gap-2 text-sm font-medium transition-colors ${
                   location.pathname.startsWith(item.path) 
                     ? "text-primary" 
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {item.name}
+                {item.name === "Dashboard" && activeCalls > 0 && (
+                  <span className="flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] text-white">
+                    {activeCalls}
+                  </span>
+                )}
               </Link>
             ))}
           </nav>
