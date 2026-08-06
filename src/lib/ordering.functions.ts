@@ -1,6 +1,9 @@
 import { createServerFn } from "@tanstack/react-start";
 import Groq from "groq-sdk";
 import { z } from "zod";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import Razorpay from "razorpay";
+import crypto from "crypto";
 
 const qrTokenSchema = z.object({ qrToken: z.string().min(1).max(200) });
 
@@ -10,6 +13,13 @@ const addToCartSchema = z.object({
   qty: z.number().int().min(1).max(50),
   notes: z.string().max(500).optional(),
   allergyOverrideAck: z.boolean().optional(),
+  deviceToken: z.string().optional(),
+});
+
+const joinSessionSchema = z.object({
+  qrToken: z.string().min(1).max(200),
+  deviceToken: z.string(),
+  participantName: z.string().optional(),
 });
 
 const lineQtySchema = z.object({
@@ -21,6 +31,14 @@ const lineQtySchema = z.object({
 const orderSchema = z.object({
   qrToken: z.string().min(1).max(200),
   orderId: z.string().uuid(),
+});
+
+const verifyRazorpaySchema = z.object({
+  qrToken: z.string(),
+  orderId: z.string().uuid(),
+  razorpay_order_id: z.string(),
+  razorpay_payment_id: z.string(),
+  razorpay_signature: z.string(),
 });
 
 export const resolveTableFn = createServerFn({ method: "POST" })
@@ -59,6 +77,77 @@ export const resolveTableFn = createServerFn({ method: "POST" })
       restaurantBanner: restaurant?.banner_url ?? null,
       sessionId: scope.sessionId,
     };
+  });
+
+export const joinSessionFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => joinSessionSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { requireSessionScope, recordSessionActivity } = await import("./ordering.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const scope = await requireSessionScope(data.qrToken);
+    if (!scope) throw new Error("Invalid table QR code");
+
+    let userId = null;
+    let authName = null;
+    try {
+      const { getRequest } = await import("@tanstack/react-start/server");
+      const request = getRequest();
+      const authHeader = request?.headers?.get("authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.replace("Bearer ", "");
+        const { data: authData } = await supabaseAdmin.auth.getUser(token);
+        if (authData.user) {
+          userId = authData.user.id;
+          const { data: profile } = await supabaseAdmin.from("profiles").select("name").eq("id", userId).maybeSingle();
+          if (profile?.name) authName = profile.name;
+        }
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    // Check if participant exists
+    const { data: existing } = await supabaseAdmin
+      .from("session_participants")
+      .select("*")
+      .eq("session_id", scope.sessionId)
+      .eq("device_token", data.deviceToken)
+      .maybeSingle();
+
+    let participantName = authName ?? existing?.guest_name;
+
+    if (existing) {
+      await recordSessionActivity(scope.sessionId);
+      return { isReturning: true, sessionId: scope.sessionId, participantName };
+    }
+
+    // Get current participant count
+    const { count: currentCount } = await supabaseAdmin
+      .from("session_participants")
+      .select("*", { count: 'exact', head: true })
+      .eq("session_id", scope.sessionId);
+      
+    const count = currentCount ?? 0;
+    if (!participantName) {
+      participantName = data.participantName || `Guest ${count + 1}`;
+    }
+
+    await supabaseAdmin.from("session_participants").insert({
+      session_id: scope.sessionId,
+      user_id: userId,
+      device_token: data.deviceToken,
+      guest_name: participantName,
+    });
+
+    await supabaseAdmin
+      .from("sessions")
+      .update({ participant_count: count + 1 })
+      .eq("id", scope.sessionId);
+
+    await recordSessionActivity(scope.sessionId);
+
+    return { isReturning: false, sessionId: scope.sessionId, participantName };
   });
 
 export const fetchCartFn = createServerFn({ method: "POST" })
@@ -123,6 +212,26 @@ export const addToCartFn = createServerFn({ method: "POST" })
     }
 
     const orderId = await ensureCartOrder(scope.sessionId, userId);
+    
+    // Get participant info if device token provided
+    let participantName = null;
+    if (data.deviceToken) {
+      const { data: participant } = await supabaseAdmin
+        .from("session_participants")
+        .select("guest_name, user_id")
+        .eq("session_id", scope.sessionId)
+        .eq("device_token", data.deviceToken)
+        .maybeSingle();
+      if (participant) {
+        if (participant.user_id) {
+          const { data: profile } = await supabaseAdmin.from("profiles").select("name").eq("id", participant.user_id).maybeSingle();
+          if (profile?.name) participantName = profile.name;
+        } else {
+          participantName = participant.guest_name;
+        }
+      }
+    }
+
     const notes = data.notes?.trim();
     const { error } = await (supabaseAdmin as any).from("order_items").insert({
       order_id: orderId,
@@ -130,6 +239,9 @@ export const addToCartFn = createServerFn({ method: "POST" })
       qty: data.qty,
       customizations: notes ? { notes } : {},
       allergy_override_ack: data.allergyOverrideAck ?? false,
+      added_by_user_id: userId,
+      added_by_name: participantName,
+      added_by_device_token: data.deviceToken || null,
     });
     
     if (error) {
@@ -138,6 +250,9 @@ export const addToCartFn = createServerFn({ method: "POST" })
       }
       throw error;
     }
+
+    const { recordSessionActivity } = await import("./ordering.server");
+    await recordSessionActivity(scope.sessionId);
 
     await recalcTotals(orderId);
     return { orderId, requiresAllergyAck: false, message: null };
@@ -540,6 +655,9 @@ export const setLineQtyFn = createServerFn({ method: "POST" })
       if (error) throw error;
     }
 
+    const { recordSessionActivity } = await import("./ordering.server");
+    await recordSessionActivity(scope.sessionId);
+
     await recalcTotals(order.id);
     return { ok: true };
   });
@@ -586,6 +704,108 @@ export const payOrderFn = createServerFn({ method: "POST" })
     const order = await requireOwnedOrder(tableId, data.orderId);
     if (!order) throw new Error("We couldn't find that bill.");
     if (order.status === "paid") return { ok: true };
+
+    await recalcTotals(order.id);
+
+    // Fetch the updated order to get the final credits_applied
+    const { data: updatedOrder } = await (supabaseAdmin as any)
+      .from("orders")
+      .select("credits_applied, user_id")
+      .eq("id", order.id)
+      .single();
+
+    if (updatedOrder && updatedOrder.credits_applied > 0 && updatedOrder.user_id) {
+      const { deductWallet } = await import("./wallet.server");
+      await deductWallet(updatedOrder.user_id, updatedOrder.credits_applied, "Redeemed on order", order.id);
+    }
+
+    const { error } = await supabaseAdmin
+      .from("orders")
+      .update({ status: "paid" })
+      .eq("id", order.id)
+      .eq("session_id", order.session_id);
+    if (error) throw error;
+
+    const { error: sessionError } = await supabaseAdmin
+      .from("sessions")
+      .update({ status: "closed" })
+      .eq("id", order.session_id);
+    if (sessionError) throw sessionError;
+
+    return { ok: true };
+  });
+
+export const createRazorpayOrderFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => orderSchema.parse(data))
+  .handler(async ({ data }) => {
+    const { resolveTableId, requireOwnedOrder } = await import("./ordering.server");
+
+    const tableId = await resolveTableId(data.qrToken);
+    if (!tableId) throw new Error("This table code is no longer active.");
+
+    const order = await requireOwnedOrder(tableId, data.orderId);
+    if (!order) throw new Error("We couldn't find that bill.");
+    if (order.status === "paid") throw new Error("Order already paid.");
+
+    const amountPaise = Math.round(Number(order.total) * 100);
+    if (amountPaise < 100) throw new Error("Amount must be at least ₹1.00");
+
+    const keyId = process.env.VITE_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+      throw new Error(`Missing Razorpay API Keys in backend. ID present: ${!!keyId}, Secret present: ${!!keySecret}. Please restart your dev server.`);
+    }
+
+    const razorpay = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
+
+    const options = {
+      amount: amountPaise,
+      currency: "INR",
+      // Razorpay receipt limit is 40 chars. UUID is 36 chars.
+      receipt: `rcpt_${order.id.split('-')[0]}`,
+    };
+
+    try {
+      const rpOrder = await razorpay.orders.create(options);
+      return {
+        order_id: rpOrder.id as string,
+        amount: rpOrder.amount as number,
+        currency: rpOrder.currency as string,
+      };
+    } catch (e: any) {
+      console.error("Razorpay Error:", e);
+      // Attempt to extract Razorpay's specific error message if it exists
+      const errorMsg = e?.error?.description || e?.message || "Failed to create Razorpay order";
+      throw new Error(`Razorpay: ${errorMsg}`);
+    }
+  });
+
+export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => verifyRazorpaySchema.parse(data))
+  .handler(async ({ data }) => {
+    const { resolveTableId, requireOwnedOrder, recalcTotals } = await import("./ordering.server");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const tableId = await resolveTableId(data.qrToken);
+    if (!tableId) throw new Error("This table code is no longer active.");
+
+    const order = await requireOwnedOrder(tableId, data.orderId);
+    if (!order) throw new Error("We couldn't find that bill.");
+    if (order.status === "paid") return { ok: true };
+
+    const body = data.razorpay_order_id + "|" + data.razorpay_payment_id;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
+      .update(body.toString())
+      .digest("hex");
+
+    if (expectedSignature !== data.razorpay_signature) {
+      throw new Error("Invalid signature. Payment verification failed.");
+    }
 
     await recalcTotals(order.id);
 

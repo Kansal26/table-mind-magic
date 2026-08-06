@@ -2,9 +2,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchLiveOrdersFn, updateKitchenStatusFn, fetchAnalyticsFn, getKitchenLoadFn } from "@/lib/admin.functions";
+import { fetchLiveOrdersFn, updateKitchenStatusFn, fetchAnalyticsFn, getKitchenLoadFn, forceCloseSessionFn } from "@/lib/admin.functions";
 import { Button } from "@/components/ui/button";
-import { ChevronDown, ChevronUp, AlertTriangle } from "lucide-react";
+import { ChevronDown, ChevronUp, AlertTriangle, LogOut } from "lucide-react";
 
 export const Route = createFileRoute("/admin/dashboard")({
   component: AdminDashboardPage,
@@ -56,6 +56,13 @@ function AdminDashboardPage() {
     }
   });
 
+  const clearTableMutation = useMutation({
+    mutationFn: (sessionId: string) => forceCloseSessionFn({ data: { sessionId } }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-live-orders", restaurant.id] });
+    }
+  });
+
   const liveOrders = ordersQuery.data?.filter(o => o.kitchen_status !== "served") || [];
   const completedOrders = ordersQuery.data?.filter(o => o.kitchen_status === "served") || [];
 
@@ -101,16 +108,31 @@ function AdminDashboardPage() {
                       {Math.floor((Date.now() - new Date(order.created_at).getTime()) / 60000)} mins ago
                     </p>
                   </div>
-                  <select 
-                    className="p-1 rounded border text-sm font-medium bg-background"
-                    value={order.kitchen_status || "received"}
-                    onChange={(e) => updateStatusMutation.mutate({ orderId: order.id, status: e.target.value })}
-                  >
-                    <option value="received">Received</option>
-                    <option value="preparing">Preparing</option>
-                    <option value="ready">Ready</option>
-                    <option value="served">Served</option>
-                  </select>
+                  <div className="flex flex-col items-end gap-2">
+                    <select 
+                      className="p-1 rounded border text-sm font-medium bg-background"
+                      value={order.kitchen_status || "received"}
+                      onChange={(e) => updateStatusMutation.mutate({ orderId: order.id, status: e.target.value })}
+                    >
+                      <option value="received">Received</option>
+                      <option value="preparing">Preparing</option>
+                      <option value="ready">Ready</option>
+                      <option value="served">Served</option>
+                    </select>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="h-7 text-xs px-2 text-destructive border-destructive/30 hover:bg-destructive/10"
+                      onClick={() => {
+                        if (confirm(`Are you sure you want to clear ${(order.sessions as any)?.tables?.label || "this table"}? This will close their session.`)) {
+                          clearTableMutation.mutate(order.session_id);
+                        }
+                      }}
+                      disabled={clearTableMutation.isPending}
+                    >
+                      <LogOut className="size-3 mr-1" /> Clear Table
+                    </Button>
+                  </div>
                 </div>
                 
                 <div className="flex-1 space-y-2 mb-4">

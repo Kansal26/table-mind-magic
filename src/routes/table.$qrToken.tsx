@@ -1,7 +1,7 @@
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Minus, Plus, ShoppingBag } from "lucide-react";
+import { Loader2, Minus, Plus, ShoppingBag, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import {
   fetchMenu,
   money,
   resolveTable,
+  joinSession,
   setLineQty,
   getRecommendations,
   type MenuItem,
@@ -31,6 +32,8 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { AlertCircle, Sparkles } from "lucide-react";
 import { VoiceOrder } from "@/components/VoiceOrder";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/table/$qrToken")({
   head: () => ({
@@ -192,6 +195,17 @@ function TableMenuPage() {
   const { qrToken } = Route.useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const getDeviceToken = () => {
+    if (typeof window === "undefined") return "";
+    let token = localStorage.getItem("tablemind_device_token");
+    if (!token) {
+      token = crypto.randomUUID();
+      localStorage.setItem("tablemind_device_token", token);
+    }
+    return token;
+  };
+  const deviceToken = useMemo(getDeviceToken, []);
   const [selected, setSelected] = useState<MenuItem | null>(null);
   const [qty, setQty] = useState(1);
   const [notes, setNotes] = useState("");
@@ -228,6 +242,72 @@ function TableMenuPage() {
     enabled: !!ctx,
   });
 
+  const participantsQuery = useQuery({
+    queryKey: ["participants", qrToken, ctx?.sessionId],
+    queryFn: async () => {
+      if (!ctx?.sessionId) return [];
+      const { data, error } = await supabase.from("session_participants").select("*").eq("session_id", ctx.sessionId);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!ctx?.sessionId,
+  });
+
+  const sessionQuery = useQuery({
+    queryKey: ["session", qrToken, deviceToken, ctx?.sessionId],
+    queryFn: () => joinSession(qrToken, deviceToken, profileQuery.data?.name),
+    enabled: !!ctx && !!deviceToken,
+  });
+
+  useEffect(() => {
+    if (!ctx?.sessionId) return;
+    const orderId = cartQuery.data?.order?.id;
+    if (!orderId) return;
+
+    const channel = supabase
+      .channel("group_cart")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "order_items",
+          filter: `order_id=eq.${orderId}`,
+        },
+        (payload) => {
+          invalidateCart();
+          if (payload.eventType === "INSERT") {
+            const newItem = payload.new as any;
+            if (newItem.added_by_device_token !== deviceToken && newItem.added_by_name) {
+              toast(`${newItem.added_by_name} added an item`);
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    const participantsChannel = supabase
+      .channel("group_participants")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "session_participants",
+          filter: `session_id=eq.${ctx.sessionId}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["participants", qrToken, ctx.sessionId] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      supabase.removeChannel(participantsChannel);
+    };
+  }, [ctx?.sessionId, cartQuery.data?.order?.id, deviceToken, queryClient, qrToken]);
+
   const recQuery = useQuery({
     queryKey: ["recommendations", qrToken],
     queryFn: () => getRecommendations(qrToken),
@@ -239,7 +319,7 @@ function TableMenuPage() {
 
   const addMutation = useMutation({
     mutationFn: (input: { menuItemId: string; qty: number; notes: string; allergyOverrideAck?: boolean }) =>
-      addToCart({ qrToken, ...input }),
+      addToCart({ qrToken, ...input, deviceToken }),
     onSuccess: async (data, variables) => {
       if (data.requiresAllergyAck) {
         setAllergyWarning({ ...variables, message: data.message || "Allergy warning" });
@@ -351,6 +431,12 @@ function TableMenuPage() {
               )}
             </div>
           </div>
+          {participantsQuery.data && participantsQuery.data.length > 1 && (
+            <div className="flex items-center gap-1.5 text-xs font-medium text-primary bg-primary/10 px-3 py-1.5 rounded-full">
+              <Users className="size-4" />
+              <span>{participantsQuery.data.length} people</span>
+            </div>
+          )}
         </div>
       </header>
 
@@ -575,58 +661,150 @@ function TableMenuPage() {
         <SheetContent side="right" className="flex w-full flex-col sm:max-w-md">
           <SheetHeader>
             <SheetTitle className="font-display text-xl">Your order</SheetTitle>
+            {participantsQuery.data && participantsQuery.data.length > 1 && (
+              <div className="flex items-center gap-2 mt-2">
+                <div className="flex -space-x-2">
+                  {participantsQuery.data.map((p) => (
+                    <div key={p.device_token} className="size-6 rounded-full bg-primary/20 border-2 border-background flex items-center justify-center text-[10px] font-bold text-primary">
+                      {p.name?.slice(0, 2).toUpperCase() || "?"}
+                    </div>
+                  ))}
+                </div>
+                <span className="text-xs text-muted-foreground">{participantsQuery.data.length} people</span>
+              </div>
+            )}
           </SheetHeader>
-          <div className="mt-4 flex-1 space-y-4 overflow-y-auto">
+          <div className="mt-4 flex-1 space-y-4 overflow-y-auto pr-2">
             {lines.length === 0 && (
               <p className="text-sm text-muted-foreground">Nothing added yet.</p>
             )}
-            {lines.map((line) => (
-              <div key={line.id} className="flex gap-3 border-b border-border pb-4">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-foreground">{line.menu_item.name}</p>
-                  {line.customizations?.notes && (
-                    <p className="mt-0.5 text-xs italic text-muted-foreground">
-                      “{line.customizations.notes}”
-                    </p>
+            
+            {participantsQuery.data && participantsQuery.data.length > 1 ? (
+              <div className="space-y-6">
+                <div>
+                  <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">Your Items</h3>
+                  {lines.filter(l => l.added_by_device_token === deviceToken).length === 0 ? (
+                    <p className="text-sm italic text-muted-foreground">You haven't added anything.</p>
+                  ) : (
+                    <div className="space-y-4">
+                      {lines.filter(l => l.added_by_device_token === deviceToken).map((line) => (
+                        <div key={line.id} className="flex gap-3 border-b border-border pb-4">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-foreground">{line.menu_item.name}</p>
+                            {line.customizations?.notes && (
+                              <p className="mt-0.5 text-xs italic text-muted-foreground">
+                                “{line.customizations.notes}”
+                              </p>
+                            )}
+                            <div className="mt-2 flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="size-7"
+                                disabled={qtyMutation.isPending}
+                                onClick={() =>
+                                  qtyMutation.mutate({ lineId: line.id, qty: line.qty - 1 })
+                                }
+                              >
+                                <Minus className="size-3" />
+                              </Button>
+                              <span className="w-6 text-center text-sm font-medium">{line.qty}</span>
+                              <Button
+                                variant="outline"
+                                size="icon"
+                                className="size-7"
+                                disabled={qtyMutation.isPending}
+                                onClick={() =>
+                                  qtyMutation.mutate({ lineId: line.id, qty: line.qty + 1 })
+                                }
+                              >
+                                <Plus className="size-3" />
+                              </Button>
+                            </div>
+                          </div>
+                          <p className="shrink-0 font-medium text-foreground text-right">
+                            {money(line.menu_item.price * line.qty)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   )}
-                  <div className="mt-2 flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="size-7"
-                      disabled={qtyMutation.isPending}
-                      onClick={() =>
-                        qtyMutation.mutate({
-                          lineId: line.id,
-                          qty: line.qty - 1,
-                        })
-                      }
-                    >
-                      <Minus />
-                    </Button>
-                    <span className="w-5 text-center text-sm">{line.qty}</span>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="size-7"
-                      disabled={qtyMutation.isPending}
-                      onClick={() =>
-                        qtyMutation.mutate({
-                          lineId: line.id,
-                          qty: line.qty + 1,
-                        })
-                      }
-                    >
-                      <Plus />
-                    </Button>
-                  </div>
                 </div>
-                <span className="text-sm text-muted-foreground">
-                  {money(line.menu_item.price * line.qty)}
-                </span>
+                
+                <div>
+                  <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted-foreground">Group Orders</h3>
+                  {lines.filter(l => l.added_by_device_token !== deviceToken).length === 0 ? (
+                    <p className="text-sm italic text-muted-foreground">No one else has ordered yet.</p>
+                  ) : (
+                    <div className="space-y-4 rounded-xl bg-accent/30 p-3">
+                      {Array.from(new Set(lines.filter(l => l.added_by_device_token !== deviceToken).map(l => l.added_by_name))).map(name => {
+                        const personLines = lines.filter(l => l.added_by_device_token !== deviceToken && l.added_by_name === name);
+                        const personTotal = personLines.reduce((sum, l) => sum + l.menu_item.price * l.qty, 0);
+                        return (
+                          <div key={name} className="border-b border-border/50 pb-3 last:border-0 last:pb-0">
+                            <div className="flex justify-between items-baseline mb-2">
+                              <p className="font-semibold text-sm text-foreground">{name || "Guest"}</p>
+                              <p className="text-sm font-medium">{money(personTotal)}</p>
+                            </div>
+                            <ul className="space-y-1">
+                              {personLines.map(l => (
+                                <li key={l.id} className="flex justify-between text-xs text-muted-foreground">
+                                  <span>{l.menu_item.name} x{l.qty}</span>
+                                  <span>{money(l.menu_item.price * l.qty)}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
-            ))}
+            ) : (
+              lines.map((line) => (
+                <div key={line.id} className="flex gap-3 border-b border-border pb-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-foreground">{line.menu_item.name}</p>
+                    {line.customizations?.notes && (
+                      <p className="mt-0.5 text-xs italic text-muted-foreground">
+                        “{line.customizations.notes}”
+                      </p>
+                    )}
+                    <div className="mt-2 flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="size-7"
+                        disabled={qtyMutation.isPending}
+                        onClick={() =>
+                          qtyMutation.mutate({ lineId: line.id, qty: line.qty - 1 })
+                        }
+                      >
+                        <Minus className="size-3" />
+                      </Button>
+                      <span className="w-6 text-center text-sm font-medium">{line.qty}</span>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="size-7"
+                        disabled={qtyMutation.isPending}
+                        onClick={() =>
+                          qtyMutation.mutate({ lineId: line.id, qty: line.qty + 1 })
+                        }
+                      >
+                        <Plus className="size-3" />
+                      </Button>
+                    </div>
+                  </div>
+                  <p className="shrink-0 font-medium text-foreground text-right">
+                    {money(line.menu_item.price * line.qty)}
+                  </p>
+                </div>
+              ))
+            )}
           </div>
+          <div className="border-t border-border bg-card pb-6 pt-4">
           {lines.length > 0 && order && (
             <Button
               className="mt-4 w-full"
@@ -640,6 +818,7 @@ function TableMenuPage() {
               Go to checkout
             </Button>
           )}
+          </div>
         </SheetContent>
       </Sheet>
     </main>

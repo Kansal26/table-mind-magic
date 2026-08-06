@@ -1,15 +1,18 @@
+import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, ChevronLeft, Loader2, Sparkles, Tag } from "lucide-react";
+import { toast } from "sonner";
+import { CheckCircle2, ChevronLeft, Loader2, Sparkles, Tag, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { fetchBill, money, payOrder, type CartLine } from "@/lib/ordering";
+import { fetchBill, money, payOrder, createRazorpayOrder, verifyRazorpayPayment, type CartLine } from "@/lib/ordering";
 import { fetchEligibleCoupons, applyCoupon } from "@/lib/coupons";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { claimOrderFn } from "@/lib/account.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { fetchMyProfile, profileNeedsDietaryInfo } from "@/lib/profile";
+import { supabase } from "@/integrations/supabase/client";
 
 type CheckoutSearch = { order: string; session: string; table: string };
 
@@ -31,11 +34,26 @@ export const Route = createFileRoute("/checkout")({
   component: CheckoutPage,
 });
 
+function loadRazorpayScript(): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (document.querySelector('script[src="https://checkout.razorpay.com/v1/checkout.js"]')) {
+      resolve(true);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+}
+
 function CheckoutPage() {
   const { order: orderId, session: sessionId, table: qrToken } = Route.useSearch();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [splitMode, setSplitMode] = useState<"item" | "equal">("item");
 
   const orderQuery = useQuery({
     queryKey: ["checkout", qrToken, orderId],
@@ -47,6 +65,16 @@ function CheckoutPage() {
     queryKey: ["profile", user?.id ?? ""],
     queryFn: () => fetchMyProfile(user!.id),
     enabled: !!user,
+  });
+
+  const participantsQuery = useQuery({
+    queryKey: ["participants", qrToken, sessionId],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("session_participants").select("*").eq("session_id", sessionId);
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!sessionId,
   });
 
   const couponsQuery = useQuery({
@@ -84,17 +112,71 @@ function CheckoutPage() {
 
   const payMutation = useMutation({
     mutationFn: async () => {
-      // Signed-in diners get the order attached to their account; guests stay NULL.
-      if (user) {
-        try {
-          await claimOrderFn({ data: { qrToken, orderId } });
-        } catch {
-          // Non-fatal — the order still completes.
+      const orderData = orderQuery.data?.order;
+      if (!orderData) throw new Error("Order not found");
+
+      if (orderData.total === 0) {
+        if (user) {
+          try {
+            await claimOrderFn({ data: { qrToken, orderId } });
+          } catch {}
         }
+        await payOrder(qrToken, orderId);
+        return;
       }
-      await payOrder(qrToken, orderId);
+
+      const isLoaded = await loadRazorpayScript();
+      if (!isLoaded) throw new Error("Failed to load Razorpay SDK");
+
+      const rpOrder = await createRazorpayOrder(qrToken, orderId);
+
+      return new Promise<void>((resolve, reject) => {
+        const options = {
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+          amount: rpOrder.amount,
+          currency: rpOrder.currency,
+          name: "TableMind",
+          description: "Order Payment",
+          order_id: rpOrder.order_id,
+          handler: async function (response: any) {
+            try {
+              await verifyRazorpayPayment(qrToken, orderId, {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              });
+              
+              if (user) {
+                try {
+                  await claimOrderFn({ data: { qrToken, orderId } });
+                } catch {
+                  // Non-fatal
+                }
+              }
+
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          },
+          theme: {
+            color: "#000000",
+          },
+          modal: {
+            ondismiss: function () {
+              reject(new Error("Payment cancelled by user"));
+            },
+          },
+        };
+        const rzp = new (window as any).Razorpay(options);
+        rzp.on("payment.failed", function (response: any) {
+          reject(new Error(response.error.description || "Payment failed"));
+        });
+        rzp.open();
+      });
     },
     onSuccess: async () => {
+      toast.success("Payment successful!");
       await queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
       queryClient.removeQueries({ queryKey: ["cart", qrToken, sessionId] });
       queryClient.removeQueries({ queryKey: ["table", qrToken] });
@@ -102,6 +184,9 @@ function CheckoutPage() {
         navigate({ to: "/feedback/$orderId", params: { orderId }, search: { table: qrToken, session: sessionId } });
       }
     },
+    onError: (error: any) => {
+      toast.error(error.message || "Failed to process payment");
+    }
   });
 
   if (orderQuery.isLoading) {
@@ -201,24 +286,79 @@ function CheckoutPage() {
           </div>
         )}
 
-        <ul className="mt-6 divide-y divide-border rounded-xl border border-border bg-card px-4 shadow-soft">
-          {lines.map((line: CartLine) => (
-            <li key={line.id} className="flex gap-3 py-4">
-              <span className="text-sm text-muted-foreground">{line.qty}×</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">{line.menu_item.name}</p>
-                {line.customizations?.notes && (
-                  <p className="mt-0.5 text-xs italic text-muted-foreground">
-                    “{line.customizations.notes}”
+        {participantsQuery.data && participantsQuery.data.length > 1 ? (
+          <div className="mt-6 rounded-xl border border-border bg-card shadow-soft overflow-hidden">
+            <div className="flex border-b border-border bg-muted/50 p-1">
+              <button
+                className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-md transition-colors ${splitMode === "item" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setSplitMode("item")}
+              >
+                Split By Item
+              </button>
+              <button
+                className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-md transition-colors ${splitMode === "equal" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                onClick={() => setSplitMode("equal")}
+              >
+                Split Equally
+              </button>
+            </div>
+            
+            <div className="p-4">
+              {splitMode === "item" ? (
+                <div className="space-y-4">
+                  {Array.from(new Set(lines.map((l: CartLine) => l.added_by_name))).map(name => {
+                    const personLines = lines.filter((l: CartLine) => l.added_by_name === name);
+                    const personTotal = personLines.reduce((sum: number, l: CartLine) => sum + l.menu_item.price * l.qty, 0);
+                    return (
+                      <div key={name || "Guest"} className="border-b border-border/50 pb-3 last:border-0 last:pb-0">
+                        <div className="flex justify-between items-baseline mb-2">
+                          <p className="font-semibold text-sm text-foreground">{name || "Guest"}</p>
+                          <p className="text-sm font-medium">{money(personTotal)}</p>
+                        </div>
+                        <ul className="space-y-1">
+                          {personLines.map((l: CartLine) => (
+                            <li key={l.id} className="flex justify-between text-xs text-muted-foreground">
+                              <span>{l.menu_item.name} x{l.qty}</span>
+                              <span>{money(l.menu_item.price * l.qty)}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="py-6 text-center space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Total {money(order.total)} ÷ {participantsQuery.data.length} participants
                   </p>
-                )}
-              </div>
-              <span className="text-sm text-foreground">
-                {money(line.menu_item.price * line.qty)}
-              </span>
-            </li>
-          ))}
-        </ul>
+                  <p className="font-display text-3xl font-bold text-foreground">
+                    {money(order.total / participantsQuery.data.length)} <span className="text-lg font-medium text-muted-foreground">each</span>
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <ul className="mt-6 divide-y divide-border rounded-xl border border-border bg-card px-4 shadow-soft">
+            {lines.map((line: CartLine) => (
+              <li key={line.id} className="flex gap-3 py-4">
+                <span className="text-sm text-muted-foreground">{line.qty}×</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground">{line.menu_item.name}</p>
+                  {line.customizations?.notes && (
+                    <p className="mt-0.5 text-xs italic text-muted-foreground">
+                      “{line.customizations.notes}”
+                    </p>
+                  )}
+                </div>
+                <span className="text-sm text-foreground">
+                  {money(line.menu_item.price * line.qty)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
 
         <dl className="mt-6 space-y-2 text-sm">
           <div className="flex justify-between text-muted-foreground">
@@ -248,34 +388,34 @@ function CheckoutPage() {
         </dl>
 
         {/* Coupons Section */}
-        {couponsQuery.data && couponsQuery.data.coupons.length > 0 && (
+        {couponsQuery.data && (
           <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-soft">
             <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
               <Tag className="size-4" /> Available Offers
             </div>
-            {applyCouponMutation.isPending && (
-              <div className="flex justify-center py-4">
+            {couponsQuery.data.coupons.length === 0 ? (
+              <p className="text-sm text-muted-foreground italic">No coupons available for this order.</p>
+            ) : applyCouponMutation.isPending ? (
+              <div className="flex justify-center py-2">
                 <Loader2 className="size-5 animate-spin text-primary" />
               </div>
-            )}
-            {!applyCouponMutation.isPending && (
-              <RadioGroup
+            ) : (
+              <Select
                 value={couponsQuery.data.applied || "none"}
                 onValueChange={(val) => applyCouponMutation.mutate(val === "none" ? null : val)}
               >
-                <div className="flex items-center space-x-2 py-2">
-                  <RadioGroupItem value="none" id="none" />
-                  <Label htmlFor="none" className="cursor-pointer">No offer applied</Label>
-                </div>
-                {couponsQuery.data.coupons.map((c) => (
-                  <div key={c.id} className="flex items-center space-x-2 py-2">
-                    <RadioGroupItem value={c.id} id={c.id} />
-                    <Label htmlFor={c.id} className="cursor-pointer flex-1 flex justify-between">
-                      <span>{c.name} <span className="text-muted-foreground font-normal">(-{money(c.calculated_discount)})</span></span>
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
+                <SelectTrigger className="w-full bg-background">
+                  <SelectValue placeholder="Select a coupon" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No offer applied</SelectItem>
+                  {couponsQuery.data.coupons.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} (-{money(c.calculated_discount)})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
           </div>
         )}
@@ -313,11 +453,11 @@ function CheckoutPage() {
           disabled={payMutation.isPending || lines.length === 0}
           onClick={() => payMutation.mutate()}
         >
-          {payMutation.isPending && <Loader2 className="animate-spin" />}
+          {payMutation.isPending && <Loader2 className="animate-spin mr-2" />}
           Pay {money(order.total)}
         </Button>
         <p className="mt-3 text-center text-xs text-muted-foreground">
-          Demo checkout — no card is charged.
+          Secured by Razorpay.
         </p>
       </div>
     </main>

@@ -15,6 +15,17 @@ export const getOwnerRestaurantFn = createServerFn({ method: "POST" })
     return restaurant || null;
   });
 
+export const forceCloseSessionFn = createServerFn({ method: "POST" })
+  .inputValidator((data: unknown) => z.object({ sessionId: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const { error } = await supabaseAdmin
+      .from("sessions")
+      .update({ status: "closed" })
+      .eq("id", data.sessionId);
+    if (error) throw error;
+    return { success: true };
+  });
+
 export async function getKitchenLoad(restaurantId: string) {
   const { data: activeOrders } = await supabaseAdmin
     .from("orders")

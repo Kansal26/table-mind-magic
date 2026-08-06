@@ -7,6 +7,9 @@ import {
   resolveTableFn,
   setLineQtyFn,
   getRecommendationsFn,
+  joinSessionFn,
+  createRazorpayOrderFn,
+  verifyRazorpayPaymentFn,
 } from "@/lib/ordering.functions";
 
 export const TAX_RATE = 0.085;
@@ -31,6 +34,18 @@ export type CartLine = {
   qty: number;
   customizations: { notes?: string } | null;
   menu_item: MenuItem;
+  added_by_user_id?: string | null;
+  added_by_name?: string | null;
+  added_by_device_token?: string | null;
+};
+
+export type SessionParticipant = {
+  id: string;
+  session_id: string;
+  user_id: string | null;
+  guest_name: string | null;
+  device_token: string;
+  joined_at: string;
 };
 
 export type TableContext = {
@@ -62,6 +77,10 @@ export const money = (n: number) =>
 /** Resolves a QR token to its table + restaurant and reuses (or opens) a dining session. */
 export async function resolveTable(qrToken: string): Promise<TableContext | null> {
   return (await resolveTableFn({ data: { qrToken } })) as TableContext | null;
+}
+
+export async function joinSession(qrToken: string, deviceToken: string, participantName?: string) {
+  return await joinSessionFn({ data: { qrToken, deviceToken, participantName } });
 }
 
 /** Menu + restaurant data is public catalogue content, read straight from the client. */
@@ -117,4 +136,16 @@ export async function setLineQty(qrToken: string, lineId: string, qty: number) {
 /** Stub payment: marks the order paid and closes the dining session. */
 export async function payOrder(qrToken: string, orderId: string) {
   await payOrderFn({ data: { qrToken, orderId } });
+}
+
+export async function createRazorpayOrder(qrToken: string, orderId: string) {
+  return (await createRazorpayOrderFn({ data: { qrToken, orderId } })) as {
+    order_id: string;
+    amount: number;
+    currency: string;
+  };
+}
+
+export async function verifyRazorpayPayment(qrToken: string, orderId: string, paymentData: any) {
+  return await verifyRazorpayPaymentFn({ data: { qrToken, orderId, ...paymentData } });
 }

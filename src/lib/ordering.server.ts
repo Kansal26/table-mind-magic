@@ -9,6 +9,8 @@ export type SessionScope = {
   restaurantId: string;
 };
 
+export const SESSION_INACTIVITY_MINUTES = 30;
+
 /**
  * Resolves the QR token to the single open dining session for that table,
  * creating one when needed. Possession of the QR token is the only credential
@@ -31,6 +33,7 @@ export async function requireSessionScope(qrToken: string): Promise<SessionScope
     .select("id")
     .eq("table_id", table.id)
     .eq("status", "open")
+    .gte("last_activity_at", new Date(Date.now() - SESSION_INACTIVITY_MINUTES * 60 * 1000).toISOString())
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -48,6 +51,14 @@ export async function requireSessionScope(qrToken: string): Promise<SessionScope
   }
 
   return { sessionId, tableId: table.id, restaurantId: table.restaurant_id };
+}
+
+/** Updates the session activity timestamp */
+export async function recordSessionActivity(sessionId: string) {
+  await supabaseAdmin
+    .from("sessions")
+    .update({ last_activity_at: new Date().toISOString() })
+    .eq("id", sessionId);
 }
 
 /**
