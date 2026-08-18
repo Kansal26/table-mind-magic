@@ -31,6 +31,7 @@ const lineQtySchema = z.object({
 const orderSchema = z.object({
   qrToken: z.string().min(1).max(200),
   orderId: z.string().uuid(),
+  guestEmail: z.string().email().optional(),
 });
 
 const verifyRazorpaySchema = z.object({
@@ -39,6 +40,7 @@ const verifyRazorpaySchema = z.object({
   razorpay_order_id: z.string(),
   razorpay_payment_id: z.string(),
   razorpay_signature: z.string(),
+  guestEmail: z.string().email().optional(),
 });
 
 export const resolveTableFn = createServerFn({ method: "POST" })
@@ -733,78 +735,90 @@ export const payOrderFn = createServerFn({ method: "POST" })
       .eq("id", order.session_id);
     if (sessionError) throw sessionError;
 
-    // Send Email Notification
-    try {
-      const { sendNewOrderNotification } = await import("./email.server");
-      
-      const { data: tableData } = await (supabaseAdmin as any)
-        .from("tables")
-        .select("label, restaurant_id")
-        .eq("id", tableId)
-        .single();
-        
-      if (!tableData) console.log('[PAY] DIAGNOSTIC: tableData is falsy');
-        
-      if (tableData) {
-        const { data: restData } = await (supabaseAdmin as any)
-          .from("restaurants")
-          .select("name, owner_id")
-          .eq("id", tableData.restaurant_id)
-          .single();
-          
-        if (!restData) console.log('[PAY] DIAGNOSTIC: restData is falsy');
-          
-        if (restData) {
-          let ownerEmail = process.env.RESTAURANT_NOTIFICATION_EMAIL;
-          console.log('[PAY] DIAGNOSTIC: Fallback email from env:', ownerEmail);
-          
-          if (restData.owner_id) {
-            console.log('[PAY] DIAGNOSTIC: Fetching owner email for ID:', restData.owner_id);
-            const { data: { user: ownerUser }, error: userError } = await supabaseAdmin.auth.admin.getUserById(restData.owner_id);
-            if (userError) console.error('[PAY] DIAGNOSTIC: getUserById error:', userError);
-            if (ownerUser?.email) {
-              ownerEmail = ownerUser.email;
-              console.log('[PAY] DIAGNOSTIC: Found owner email from auth:', ownerEmail);
-            } else {
-              console.log('[PAY] DIAGNOSTIC: ownerUser or ownerUser.email is missing');
-            }
-          }
-          
-          if (!ownerEmail) console.log('[PAY] DIAGNOSTIC: ownerEmail is falsy');
-          
-          if (ownerEmail) {
-            const { data: items } = await (supabaseAdmin as any)
-              .from("order_items")
-              .select("qty, customizations, menu_items(name)")
-              .eq("order_id", order.id);
-              
-            const formattedItems = (items || []).map((i: any) => ({
-              name: i.menu_items?.name || "Unknown Item",
-              qty: i.qty,
-              customizations: i.customizations
-            }));
+    // Trigger email notification for owner (and guest if provided)
+    if (data.guestEmail) {
+      await supabaseAdmin
+        .from("orders")
+        .update({ guest_email: data.guestEmail })
+        .eq("id", data.orderId);
+    }
 
-            console.log('[PAY] Step 6: Data fetched, sending email');
-            console.log('[Email] Attempting to send order notification...');
-            console.log('[Email] Restaurant:', restData.name);
-            console.log('[Email] Owner email:', ownerEmail);
-            
-            const result = await sendNewOrderNotification({
-              restaurantName: restData.name,
-              tableName: tableData.label,
-              orderItems: formattedItems,
-              subtotal: Number(order.subtotal || 0),
-              discount: Number(order.discount_total || 0),
-              total: Number(order.total || 0),
-              ownerEmail,
+    try {
+      const { data: orderData } = await supabaseAdmin
+        .from("orders")
+        .select(`
+          total, subtotal, tax, discount_amount, credits_applied,
+          sessions (
+            tables (
+              label,
+              restaurants (
+                name,
+                owner_id
+              )
+            )
+          ),
+          order_items (
+            qty,
+            customizations,
+            menu_items (
+              name
+            )
+          )
+        `)
+        .eq("id", data.orderId)
+        .single();
+      
+      if (orderData?.sessions?.tables) {
+        const table = orderData.sessions.tables;
+        const restaurant = table.restaurants;
+        const ownerId = restaurant?.owner_id;
+        
+        const items = orderData.order_items.map((oi: any) => ({
+          name: oi.menu_items?.name || "Unknown Item",
+          qty: oi.qty,
+          customizations: oi.customizations
+        }));
+
+        if (ownerId) {
+          const { data: ownerData } = await supabaseAdmin.auth.admin.getUserById(ownerId);
+          let ownerEmail = ownerData?.user?.email;
+
+          if (!ownerEmail && process.env.RESTAURANT_NOTIFICATION_EMAIL) {
+            ownerEmail = process.env.RESTAURANT_NOTIFICATION_EMAIL;
+          }
+
+          if (ownerEmail) {
+            const { sendNewOrderNotification, sendGuestReceiptEmail } = await import("./email.server");
+            await sendNewOrderNotification({
+              restaurantName: restaurant?.name || "Restaurant",
+              tableName: table.label || "Table",
+              orderItems: items,
+              subtotal: Number(orderData.subtotal),
+              discount: Number(orderData.discount_amount),
+              total: Number(orderData.total),
+              ownerEmail: ownerEmail,
               orderId: order.id
             });
-            console.log('[Email] Result:', result);
+
+            if (data.guestEmail) {
+              await sendGuestReceiptEmail({
+                guestEmail: data.guestEmail,
+                restaurantName: restaurant?.name || "Restaurant",
+                tableName: table.label || "Table",
+                orderItems: items,
+                subtotal: Number(orderData.subtotal),
+                discount: Number(orderData.discount_amount),
+                creditsApplied: Number(orderData.credits_applied || 0),
+                tax: Number(orderData.tax),
+                total: Number(orderData.total),
+                orderId: order.id
+              });
+            }
           }
         }
       }
     } catch (e) {
-      console.error("Failed to trigger order email:", e);
+      console.error("Failed to trigger order emails:", e);
     }
 
     return { ok: true };
@@ -931,7 +945,7 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
 
     console.log('[PAY] Step 5: Fetching restaurant/email data');
     try {
-      const { sendNewOrderNotification } = await import("./email.server");
+      const { sendNewOrderNotification, sendGuestReceiptEmail } = await import("./email.server");
       
       const { data: tableData } = await (supabaseAdmin as any)
         .from("tables")
@@ -996,6 +1010,23 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
               orderId: order.id
             });
             console.log('[Email] Result:', result);
+
+            if (data.guestEmail) {
+              // We need to fetch credits_applied and tax which aren't in `order` var natively here, or wait `order` is fetched at the top via `requireOwnedOrder` which has `total`, `subtotal`, `tax`, `discount_amount`, `credits_applied`
+              // The `order` object from `requireOwnedOrder` has `total`, `subtotal`, `tax`, `discount_amount`, `credits_applied`.
+              await sendGuestReceiptEmail({
+                guestEmail: data.guestEmail,
+                restaurantName: restData.name || "Restaurant",
+                tableName: tableData.label || "Table",
+                orderItems: formattedItems,
+                subtotal: Number(order.subtotal || 0),
+                discount: Number(order.discount_amount || 0),
+                creditsApplied: Number(order.credits_applied || 0),
+                tax: Number(order.tax || 0),
+                total: Number(order.total || 0),
+                orderId: order.id
+              });
+            }
           }
         }
       }

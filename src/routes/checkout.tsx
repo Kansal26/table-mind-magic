@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -54,6 +54,35 @@ function CheckoutPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [splitMode, setSplitMode] = useState<"item" | "equal">("item");
+  const [guestEmail, setGuestEmail] = useState("");
+  const [emailError, setEmailError] = useState("");
+
+  useEffect(() => {
+    if (!orderId) return;
+
+    const channel = supabase
+      .channel(`order_checkout_${orderId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        (payload) => {
+          if (payload.new.status === "paid") {
+            queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
+            toast.success("Order has been paid by someone at your table!");
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [orderId, qrToken, queryClient]);
 
   const orderQuery = useQuery({
     queryKey: ["checkout", qrToken, orderId],
@@ -115,13 +144,22 @@ function CheckoutPage() {
       const orderData = orderQuery.data?.order;
       if (!orderData) throw new Error("Order not found");
 
+      if (!user && guestEmail) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(guestEmail)) {
+          setEmailError("Please enter a valid email address");
+          throw new Error("Invalid email address");
+        }
+        setEmailError("");
+      }
+
       if (orderData.total === 0) {
         if (user) {
           try {
             await claimOrderFn({ data: { qrToken, orderId } });
           } catch {}
         }
-        await payOrder(qrToken, orderId);
+        await payOrder(qrToken, orderId, guestEmail || undefined);
         return;
       }
 
@@ -147,8 +185,9 @@ function CheckoutPage() {
                 razorpay_order_id: response.razorpay_order_id,
                 razorpay_payment_id: response.razorpay_payment_id,
                 razorpay_signature: response.razorpay_signature,
+                guestEmail: guestEmail || undefined,
               });
-              
+              toast.success("Payment successful!");
               if (user) {
                 try {
                   await claimOrderFn({ data: { qrToken, orderId } });
@@ -447,6 +486,23 @@ function CheckoutPage() {
                 )}
               </div>
             </div>
+          </div>
+        )}
+
+        {!user && (
+          <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-soft">
+            <Label htmlFor="guestEmail" className="mb-2 block text-sm font-medium text-foreground">
+              📧 Get your receipt by email (optional)
+            </Label>
+            <input
+              id="guestEmail"
+              type="email"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              placeholder="your@email.com"
+              value={guestEmail}
+              onChange={(e) => { setGuestEmail(e.target.value); setEmailError(""); }}
+            />
+            {emailError && <p className="mt-1 text-xs text-destructive">{emailError}</p>}
           </div>
         )}
 

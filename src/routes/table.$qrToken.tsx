@@ -405,9 +405,29 @@ function TableMenuPage() {
       )
       .subscribe();
 
+    const orderChannel = supabase
+      .channel("group_order")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "orders",
+          filter: `id=eq.${orderId}`,
+        },
+        (payload) => {
+          invalidateCart();
+          if (payload.new.status === "paid") {
+            toast.success("Order has been paid!");
+          }
+        }
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(channel);
       supabase.removeChannel(participantsChannel);
+      supabase.removeChannel(orderChannel);
     };
   }, [ctx?.sessionId, cartQuery.data?.order?.id, deviceToken, queryClient, qrToken]);
 

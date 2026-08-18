@@ -1,9 +1,11 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { toast } from "sonner";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchLiveOrdersFn, updateKitchenStatusFn, fetchAnalyticsFn, getKitchenLoadFn, forceCloseSessionFn } from "@/lib/admin.functions";
+import { fetchLiveOrdersFn, updateKitchenStatusFn, fetchAnalyticsFn, getKitchenLoadFn, forceCloseSessionFn, exportOrdersFn, exportRevenueSummaryFn, exportDishFeedbackFn, exportCouponsFn } from "@/lib/admin.functions";
 import { fetchAdminWaiterCalls, acknowledgeWaiterCall, resolveWaiterCall } from "@/lib/waiter";
+import { generateCSV, downloadCSV } from "@/lib/csv";
 import { Button } from "@/components/ui/button";
 import { ChevronDown, ChevronUp, AlertTriangle, LogOut, Bell, CheckCircle2 } from "lucide-react";
 
@@ -17,6 +19,77 @@ function AdminDashboardPage() {
   const token = session.access_token;
   const [showCompleted, setShowCompleted] = useState(false);
   const [incomingCall, setIncomingCall] = useState<any>(null);
+
+  // Default export range: last 30 days
+  const [exportFrom, setExportFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  });
+  const [exportTo, setExportTo] = useState(() => {
+    return new Date().toISOString().split('T')[0];
+  });
+
+  const exportOrdersMutation = useMutation({
+    mutationFn: async () => {
+      const data = await exportOrdersFn({ data: { token, restaurantId: restaurant.id, fromDate: exportFrom, toDate: exportTo } });
+      if (data.length === 0) {
+        toast.info("No orders found in this date range");
+        downloadCSV(generateCSV(["Order ID", "Date", "Table", "Items", "Subtotal", "Discount", "Credits Applied", "Tax", "Total", "Payment Status", "Guest Email"], []), `tablemind-orders-${new Date().toISOString().split('T')[0]}.csv`);
+        return;
+      }
+      const headers = ["Order ID", "Date", "Table", "Items", "Subtotal", "Discount", "Credits Applied", "Tax", "Total", "Payment Status", "Guest Email"];
+      const rows = data.map((row: any) => [
+        row.orderId, row.date, row.table, row.items,
+        row.subtotal?.toString() || "0", row.discount?.toString() || "0", 
+        row.creditsApplied?.toString() || "0", row.tax?.toString() || "0", 
+        row.total?.toString() || "0", row.paymentStatus, row.guestEmail
+      ]);
+      downloadCSV(generateCSV(headers, rows), `tablemind-orders-${new Date().toISOString().split('T')[0]}.csv`);
+    },
+    onError: () => toast.error("Export failed, try again")
+  });
+
+  const exportRevenueMutation = useMutation({
+    mutationFn: async () => {
+      const data = await exportRevenueSummaryFn({ data: { token, restaurantId: restaurant.id, fromDate: exportFrom, toDate: exportTo } });
+      if (data.length === 0) {
+        toast.info("No revenue data found in this date range");
+        downloadCSV(generateCSV(["Date", "Orders Count", "Gross Revenue", "Total Discounts", "Net Revenue"], []), `tablemind-revenue-${new Date().toISOString().split('T')[0]}.csv`);
+        return;
+      }
+      const headers = ["Date", "Orders Count", "Gross Revenue", "Total Discounts", "Net Revenue"];
+      const rows = data.map((row: any) => [
+        row.date, row.orders.toString(), row.gross.toString(), row.discounts.toString(), row.net.toString()
+      ]);
+      downloadCSV(generateCSV(headers, rows), `tablemind-revenue-${new Date().toISOString().split('T')[0]}.csv`);
+    },
+    onError: () => toast.error("Export failed, try again")
+  });
+
+  const exportFeedbackMutation = useMutation({
+    mutationFn: async () => {
+      const data = await exportDishFeedbackFn({ data: { token, restaurantId: restaurant.id } });
+      const headers = ["Dish Name", "Category", "Average Rating", "Total Reviews", "Total Orders"];
+      const rows = data.map((row: any) => [
+        row.name, row.category, row.avgRating.toString(), row.reviews.toString(), row.totalOrders.toString()
+      ]);
+      downloadCSV(generateCSV(headers, rows), `tablemind-dish-feedback-${new Date().toISOString().split('T')[0]}.csv`);
+    },
+    onError: () => toast.error("Export failed, try again")
+  });
+
+  const exportCouponsMutation = useMutation({
+    mutationFn: async () => {
+      const data = await exportCouponsFn({ data: { token, restaurantId: restaurant.id } });
+      const headers = ["Coupon Name", "Type", "Times Redeemed", "Total Discount Given", "Average Discount Per Order"];
+      const rows = data.map((row: any) => [
+        row.name, row.type, row.redeemed.toString(), row.totalDiscount.toString(), row.avgDiscount.toString()
+      ]);
+      downloadCSV(generateCSV(headers, rows), `tablemind-coupons-${new Date().toISOString().split('T')[0]}.csv`);
+    },
+    onError: () => toast.error("Export failed, try again")
+  });
 
   const playBeep = () => {
     try {
@@ -384,7 +457,7 @@ function AdminDashboardPage() {
           <div className="bg-card border border-border rounded-xl shadow-sm p-4">
             <h3 className="font-medium text-muted-foreground mb-4">Coupon Usage (Phase 4)</h3>
             <div className="space-y-2">
-              {analytics?.couponList.map(c => (
+              {analytics?.couponList.map((c: any) => (
                 <div key={c.code} className="flex justify-between items-center p-2 border-b border-border last:border-0 text-sm">
                   <div>
                     <div className="font-medium">{c.name}</div>
@@ -401,6 +474,63 @@ function AdminDashboardPage() {
               {(!analytics?.couponList || analytics.couponList.length === 0) && (
                 <div className="text-sm text-muted-foreground text-center py-4">No coupons redeemed.</div>
               )}
+            </div>
+          </div>
+
+          <div className="bg-card border border-border rounded-xl shadow-sm p-4">
+            <h3 className="font-medium text-muted-foreground mb-4 flex items-center gap-2">📊 Export Data</h3>
+            
+            <div className="space-y-4">
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-foreground">Date Range (Orders & Revenue)</label>
+                <div className="flex gap-2">
+                  <input type="date" className="border border-border rounded px-2 py-1 text-sm flex-1" value={exportFrom} onChange={e => setExportFrom(e.target.value)} />
+                  <span className="text-muted-foreground py-1">to</span>
+                  <input type="date" className="border border-border rounded px-2 py-1 text-sm flex-1" value={exportTo} onChange={e => setExportTo(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                <Button 
+                  variant="outline" 
+                  disabled={exportOrdersMutation.isPending}
+                  onClick={() => exportOrdersMutation.mutate()}
+                  className="w-full flex justify-between"
+                >
+                  <span>Orders</span>
+                  <span>Download ↓</span>
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  disabled={exportRevenueMutation.isPending}
+                  onClick={() => exportRevenueMutation.mutate()}
+                  className="w-full flex justify-between"
+                >
+                  <span>Revenue Summary</span>
+                  <span>Download ↓</span>
+                </Button>
+
+                <Button 
+                  variant="outline" 
+                  disabled={exportFeedbackMutation.isPending}
+                  onClick={() => exportFeedbackMutation.mutate()}
+                  className="w-full flex justify-between"
+                >
+                  <span>Dish Feedback</span>
+                  <span>Download ↓</span>
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  disabled={exportCouponsMutation.isPending}
+                  onClick={() => exportCouponsMutation.mutate()}
+                  className="w-full flex justify-between"
+                >
+                  <span>Coupon Performance</span>
+                  <span>Download ↓</span>
+                </Button>
+              </div>
             </div>
           </div>
         </div>

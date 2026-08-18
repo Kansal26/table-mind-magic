@@ -219,3 +219,159 @@ export const fetchAnalyticsFn = createServerFn({ method: "POST" })
 
     return { recommendations, feedbackList, couponList };
   });
+
+export const exportOrdersFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid(), fromDate: z.string().optional(), toDate: z.string().optional() }).parse(data))
+  .handler(async ({ data }) => {
+    const { requireRestaurantOwnership } = await import("./auth.server");
+    await requireRestaurantOwnership(data.token, data.restaurantId);
+
+    let query = supabaseAdmin
+      .from("orders")
+      .select(`
+        id, created_at, status, subtotal, discount_amount, credits_applied, tax, total, guest_email,
+        sessions!inner(tables!inner(label, restaurant_id)),
+        order_items(qty, menu_items(name))
+      `)
+      .eq("sessions.tables.restaurant_id", data.restaurantId)
+      .eq("status", "paid")
+      .order("created_at", { ascending: false });
+
+    if (data.fromDate) query = query.gte("created_at", data.fromDate + "T00:00:00Z");
+    if (data.toDate) query = query.lte("created_at", data.toDate + "T23:59:59Z");
+
+    const { data: orders } = await query;
+    if (!orders) return [];
+
+    return orders.map((o: any) => {
+      const itemsStr = (o.order_items || []).map((oi: any) => `${oi.qty}x ${oi.menu_items?.name}`).join("; ");
+      const tableLabel = o.sessions?.tables?.label || "Unknown";
+      return {
+        orderId: o.id,
+        date: new Date(o.created_at).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }),
+        table: tableLabel,
+        items: itemsStr,
+        subtotal: o.subtotal,
+        discount: o.discount_amount,
+        creditsApplied: o.credits_applied || 0,
+        tax: o.tax,
+        total: o.total,
+        paymentStatus: o.status,
+        guestEmail: o.guest_email || ""
+      };
+    });
+  });
+
+export const exportRevenueSummaryFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid(), fromDate: z.string().optional(), toDate: z.string().optional() }).parse(data))
+  .handler(async ({ data }) => {
+    const { requireRestaurantOwnership } = await import("./auth.server");
+    await requireRestaurantOwnership(data.token, data.restaurantId);
+
+    let query = supabaseAdmin
+      .from("orders")
+      .select(`created_at, subtotal, discount_amount, total, sessions!inner(tables!inner(restaurant_id))`)
+      .eq("sessions.tables.restaurant_id", data.restaurantId)
+      .eq("status", "paid");
+
+    if (data.fromDate) query = query.gte("created_at", data.fromDate + "T00:00:00Z");
+    if (data.toDate) query = query.lte("created_at", data.toDate + "T23:59:59Z");
+
+    const { data: orders } = await query;
+    if (!orders) return [];
+
+    const dailyStats: Record<string, any> = {};
+    for (const o of orders) {
+      const dateStr = new Date(o.created_at).toISOString().split('T')[0];
+      if (!dailyStats[dateStr]) {
+        dailyStats[dateStr] = { date: dateStr, orders: 0, gross: 0, discounts: 0, net: 0 };
+      }
+      dailyStats[dateStr].orders += 1;
+      dailyStats[dateStr].gross += Number(o.subtotal || 0);
+      dailyStats[dateStr].discounts += Number(o.discount_amount || 0);
+      dailyStats[dateStr].net += Number(o.total || 0);
+    }
+
+    return Object.values(dailyStats).sort((a: any, b: any) => a.date.localeCompare(b.date));
+  });
+
+export const exportDishFeedbackFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const { requireRestaurantOwnership } = await import("./auth.server");
+    await requireRestaurantOwnership(data.token, data.restaurantId);
+
+    const { data: feedbackData } = await supabaseAdmin
+      .from("feedback")
+      .select("rating, order_id, orders!inner(sessions!inner(tables!inner(restaurant_id)))")
+      .eq("orders.sessions.tables.restaurant_id", data.restaurantId)
+      .not("rating", "is", null);
+
+    const dishStats: Record<string, any> = {};
+
+    if (feedbackData && feedbackData.length > 0) {
+      const orderIds = feedbackData.map((f: any) => f.order_id);
+      const { data: fbOrderItems } = await supabaseAdmin
+        .from("order_items")
+        .select("order_id, qty, menu_items(id, name, category)")
+        .in("order_id", orderIds);
+
+      if (fbOrderItems) {
+        for (const oi of fbOrderItems) {
+          const fb = feedbackData.find((f: any) => f.order_id === oi.order_id);
+          const menuItem = oi.menu_items as any;
+          if (fb && menuItem && menuItem.id) {
+            if (!dishStats[menuItem.id]) {
+              dishStats[menuItem.id] = { name: menuItem.name, category: menuItem.category, sumRating: 0, reviews: 0, totalOrders: 0 };
+            }
+            dishStats[menuItem.id].sumRating += fb.rating;
+            dishStats[menuItem.id].reviews += 1;
+            dishStats[menuItem.id].totalOrders += Number(oi.qty || 1);
+          }
+        }
+      }
+    }
+
+    return Object.values(dishStats).map((d: any) => ({
+      name: d.name,
+      category: d.category || "Unknown",
+      avgRating: Number((d.sumRating / d.reviews).toFixed(2)),
+      reviews: d.reviews,
+      totalOrders: d.totalOrders
+    })).sort((a, b) => b.reviews - a.reviews);
+  });
+
+export const exportCouponsFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const { requireRestaurantOwnership } = await import("./auth.server");
+    await requireRestaurantOwnership(data.token, data.restaurantId);
+
+    const { data: discounts } = await supabaseAdmin
+      .from("order_discounts")
+      .select("discount_amount, coupons!inner(code, name, type, restaurant_id)")
+      .eq("coupons.restaurant_id", data.restaurantId);
+
+    const couponStats: Record<string, any> = {};
+
+    if (discounts) {
+      for (const d of discounts) {
+        const c = d.coupons as any;
+        if (c) {
+          if (!couponStats[c.code]) {
+            couponStats[c.code] = { name: c.name, type: c.type, redeemed: 0, totalDiscount: 0 };
+          }
+          couponStats[c.code].redeemed += 1;
+          couponStats[c.code].totalDiscount += Number(d.discount_amount || 0);
+        }
+      }
+    }
+
+    return Object.values(couponStats).map((c: any) => ({
+      name: c.name,
+      type: c.type,
+      redeemed: c.redeemed,
+      totalDiscount: c.totalDiscount,
+      avgDiscount: Number((c.totalDiscount / c.redeemed).toFixed(2))
+    })).sort((a, b) => b.redeemed - a.redeemed);
+  });

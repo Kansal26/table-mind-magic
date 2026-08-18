@@ -135,8 +135,8 @@ export async function setLineQty(qrToken: string, lineId: string, qty: number) {
 }
 
 /** Stub payment: marks the order paid and closes the dining session. */
-export async function payOrder(qrToken: string, orderId: string) {
-  await payOrderFn({ data: { qrToken, orderId } });
+export async function payOrder(qrToken: string, orderId: string, guestEmail?: string) {
+  await payOrderFn({ data: { qrToken, orderId, guestEmail } });
 }
 
 export async function createRazorpayOrder(qrToken: string, orderId: string) {
