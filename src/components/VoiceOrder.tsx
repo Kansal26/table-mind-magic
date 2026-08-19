@@ -165,7 +165,7 @@ export function VoiceOrder({
         if (item.quantity > 0) {
           await onAddToCart({
             menuItemId: item.menu_item_id,
-            qty: item.quantity,
+            qty: Number(item.quantity) || 1,
             notes: item.customizations || "",
           });
         }
@@ -185,7 +185,7 @@ export function VoiceOrder({
     setParsedOrder({
       ...parsedOrder,
       parsed_items: parsedOrder.parsed_items.map(item =>
-        item.menu_item_id === id ? { ...item, quantity: Math.max(0, item.quantity + delta) } : item
+        item.menu_item_id === id ? { ...item, quantity: Math.max(0, (Number(item.quantity) || 1) + delta) } : item
       ),
     });
   };

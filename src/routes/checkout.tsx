@@ -53,7 +53,6 @@ function CheckoutPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const [splitMode, setSplitMode] = useState<"item" | "equal">("item");
   const [guestEmail, setGuestEmail] = useState("");
   const [emailError, setEmailError] = useState("");
 
@@ -178,8 +177,6 @@ function CheckoutPage() {
           description: "Order Payment",
           order_id: rpOrder.order_id,
           handler: async function (response: any) {
-            console.log('[CHECKOUT] Payment success handler triggered');
-            console.log('[CHECKOUT] Calling verify/pay function...');
             try {
               await verifyRazorpayPayment(qrToken, orderId, {
                 razorpay_order_id: response.razorpay_order_id,
@@ -330,55 +327,33 @@ function CheckoutPage() {
 
         {participantsQuery.data && participantsQuery.data.length > 1 ? (
           <div className="mt-6 rounded-xl border border-border bg-card shadow-soft overflow-hidden">
-            <div className="flex border-b border-border bg-muted/50 p-1">
-              <button
-                className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-md transition-colors ${splitMode === "item" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                onClick={() => setSplitMode("item")}
-              >
-                Split By Item
-              </button>
-              <button
-                className={`flex-1 py-2 text-xs font-semibold uppercase tracking-wider rounded-md transition-colors ${splitMode === "equal" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-                onClick={() => setSplitMode("equal")}
-              >
-                Split Equally
-              </button>
+            <div className="bg-muted/50 p-3 border-b border-border">
+              <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Split By Item</h3>
             </div>
             
             <div className="p-4">
-              {splitMode === "item" ? (
-                <div className="space-y-4">
-                  {Array.from(new Set(lines.map((l: CartLine) => l.added_by_name))).map(name => {
-                    const personLines = lines.filter((l: CartLine) => l.added_by_name === name);
-                    const personTotal = personLines.reduce((sum: number, l: CartLine) => sum + l.menu_item.price * l.qty, 0);
-                    return (
-                      <div key={name || "Guest"} className="border-b border-border/50 pb-3 last:border-0 last:pb-0">
-                        <div className="flex justify-between items-baseline mb-2">
-                          <p className="font-semibold text-sm text-foreground">{name || "Guest"}</p>
-                          <p className="text-sm font-medium">{money(personTotal)}</p>
-                        </div>
-                        <ul className="space-y-1">
-                          {personLines.map((l: CartLine) => (
-                            <li key={l.id} className="flex justify-between text-xs text-muted-foreground">
-                              <span>{l.menu_item.name} x{l.qty}</span>
-                              <span>{money(l.menu_item.price * l.qty)}</span>
-                            </li>
-                          ))}
-                        </ul>
+              <div className="space-y-4">
+                {Array.from(new Set(lines.map((l: CartLine) => l.added_by_name))).map(name => {
+                  const personLines = lines.filter((l: CartLine) => l.added_by_name === name);
+                  const personTotal = personLines.reduce((sum: number, l: CartLine) => sum + l.menu_item.price * l.qty, 0);
+                  return (
+                    <div key={name || "Guest"} className="border-b border-border/50 pb-3 last:border-0 last:pb-0">
+                      <div className="flex justify-between items-baseline mb-2">
+                        <p className="font-semibold text-sm text-foreground">{name || "Guest"}</p>
+                        <p className="text-sm font-medium">{money(personTotal)}</p>
                       </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="py-6 text-center space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    Total {money(order.total)} ÷ {participantsQuery.data.length} participants
-                  </p>
-                  <p className="font-display text-3xl font-bold text-foreground">
-                    {money(order.total / participantsQuery.data.length)} <span className="text-lg font-medium text-muted-foreground">each</span>
-                  </p>
-                </div>
-              )}
+                      <ul className="space-y-1">
+                        {personLines.map((l: CartLine) => (
+                          <li key={l.id} className="flex justify-between text-xs text-muted-foreground">
+                            <span>{l.menu_item.name} x{l.qty}</span>
+                            <span>{money(l.menu_item.price * l.qty)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         ) : (
@@ -513,7 +488,7 @@ function CheckoutPage() {
           onClick={() => payMutation.mutate()}
         >
           {payMutation.isPending && <Loader2 className="animate-spin mr-2" />}
-          Pay {money(order.total)}
+          Pay {money(order.total)} for the table
         </Button>
         <p className="mt-3 text-center text-xs text-muted-foreground">
           Secured by Razorpay.

@@ -12,7 +12,6 @@ import {
   verifyRazorpayPaymentFn,
 } from "@/lib/ordering.functions";
 
-export const TAX_RATE = 0.085;
 
 export type MenuItem = {
   id: string;
@@ -39,15 +38,6 @@ export type CartLine = {
   added_by_device_token?: string | null;
 };
 
-export type SessionParticipant = {
-  id: string;
-  session_id: string;
-  user_id: string | null;
-  guest_name: string | null;
-  device_token: string;
-  joined_at: string;
-};
-
 export type TableContext = {
   tableId: string;
   tableLabel: string;
@@ -59,7 +49,6 @@ export type TableContext = {
   restaurantBanner: string | null;
   sessionId: string;
 };
-
 export type Order = {
   id: string;
   status: string;
@@ -72,7 +61,7 @@ export type Order = {
 };
 
 export const money = (n: number) =>
-  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+  new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n);
 
 /** Resolves a QR token to its table + restaurant and reuses (or opens) a dining session. */
 export async function resolveTable(qrToken: string): Promise<TableContext | null> {

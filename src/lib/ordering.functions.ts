@@ -695,7 +695,6 @@ export const fetchBillFn = createServerFn({ method: "POST" })
 export const payOrderFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => orderSchema.parse(data))
   .handler(async ({ data }) => {
-    console.log('[PAY] payOrderFn called');
     const { resolveTableId, requireOwnedOrder, recalcTotals } = await import(
       "./ordering.server"
     );
@@ -876,18 +875,15 @@ export const createRazorpayOrderFn = createServerFn({ method: "POST" })
 export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => verifyRazorpaySchema.parse(data))
   .handler(async ({ data }) => {
-    console.log('[PAY] verifyRazorpayPaymentFn called');
     const { resolveTableId, requireOwnedOrder, recalcTotals } = await import("./ordering.server");
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-    console.log('[PAY] Step 1: Starting verification');
     const tableId = await resolveTableId(data.qrToken);
     if (!tableId) throw new Error("This table code is no longer active.");
 
     const order = await requireOwnedOrder(tableId, data.orderId);
     if (!order) throw new Error("We couldn't find that bill.");
     if (order.status === "paid") {
-      console.log('[PAY] Order already paid. Returning early!');
       return { ok: true };
     }
 
@@ -902,13 +898,11 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
       if (expectedSignature !== data.razorpay_signature) {
         throw new Error("Invalid signature. Payment verification failed.");
       }
-      console.log('[PAY] Step 2: Signature verified');
     } catch (e) {
-      console.error('[PAY] Step 2 FAILED:', e);
+      console.error('Signature verification failed:', e);
       throw e;
     }
 
-    console.log('[PAY] Step 3: Updating order status');
     try {
       await recalcTotals(order.id);
 
@@ -936,14 +930,11 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
         .update({ status: "closed" })
         .eq("id", order.session_id);
       if (sessionError) throw sessionError;
-      
-      console.log('[PAY] Step 4: Order status updated');
     } catch (e) {
-      console.error('[PAY] Step 4 FAILED:', e);
+      console.error('Updating order status failed:', e);
       throw e;
     }
 
-    console.log('[PAY] Step 5: Fetching restaurant/email data');
     try {
       const { sendNewOrderNotification, sendGuestReceiptEmail } = await import("./email.server");
       
@@ -953,8 +944,6 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
         .eq("id", tableId)
         .single();
         
-      if (!tableData) console.log('[PAY] DIAGNOSTIC: tableData is falsy');
-        
       if (tableData) {
         const { data: restData } = await (supabaseAdmin as any)
           .from("restaurants")
@@ -962,25 +951,16 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
           .eq("id", tableData.restaurant_id)
           .single();
           
-        if (!restData) console.log('[PAY] DIAGNOSTIC: restData is falsy');
-          
         if (restData) {
           let ownerEmail = process.env.RESTAURANT_NOTIFICATION_EMAIL;
-          console.log('[PAY] DIAGNOSTIC: Fallback email from env:', ownerEmail);
           
           if (restData.owner_id) {
-            console.log('[PAY] DIAGNOSTIC: Fetching owner email for ID:', restData.owner_id);
             const { data: { user: ownerUser }, error: userError } = await supabaseAdmin.auth.admin.getUserById(restData.owner_id);
-            if (userError) console.error('[PAY] DIAGNOSTIC: getUserById error:', userError);
+            if (userError) console.error('getUserById error:', userError);
             if (ownerUser?.email) {
               ownerEmail = ownerUser.email;
-              console.log('[PAY] DIAGNOSTIC: Found owner email from auth:', ownerEmail);
-            } else {
-              console.log('[PAY] DIAGNOSTIC: ownerUser or ownerUser.email is missing');
             }
           }
-          
-          if (!ownerEmail) console.log('[PAY] DIAGNOSTIC: ownerEmail is falsy');
           
           if (ownerEmail) {
             const { data: items } = await (supabaseAdmin as any)
@@ -993,13 +973,8 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
               qty: i.qty,
               customizations: i.customizations
             }));
-
-            console.log('[PAY] Step 6: Data fetched, sending email');
-            console.log('[Email] Attempting to send order notification...');
-            console.log('[Email] Restaurant:', restData.name);
-            console.log('[Email] Owner email:', ownerEmail);
             
-            const result = await sendNewOrderNotification({
+            await sendNewOrderNotification({
               restaurantName: restData.name,
               tableName: tableData.label,
               orderItems: formattedItems,
@@ -1009,7 +984,6 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
               ownerEmail,
               orderId: order.id
             });
-            console.log('[Email] Result:', result);
 
             if (data.guestEmail) {
               // We need to fetch credits_applied and tax which aren't in `order` var natively here, or wait `order` is fetched at the top via `requireOwnedOrder` which has `total`, `subtotal`, `tax`, `discount_amount`, `credits_applied`
@@ -1031,7 +1005,7 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
         }
       }
     } catch (e) {
-      console.error('[PAY] Step 6 FAILED:', e);
+      console.error('Email fetching/sending failed:', e);
       throw e;
     }
 

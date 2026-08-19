@@ -1,4 +1,4 @@
-import { getWebRequest } from "@tanstack/react-start/server";
+import { getRequest } from "@tanstack/react-start/server";
 
 // Minimal In-Memory Rate Limiter for Brute-Force Protection
 // IMPORTANT: This in-memory store resets on server restart.
@@ -19,7 +19,7 @@ const rateLimitStore = new Map<string, RateLimitData>();
 export function rateLimit(userId: string, action: string, limit: number, windowMs: number) {
   let ip = "unknown";
   try {
-    const req = getWebRequest();
+    const req = getRequest();
     if (req) {
       ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() 
         || req.headers.get("x-real-ip") 
