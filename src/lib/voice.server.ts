@@ -73,7 +73,7 @@ RULES:
 5. UNMATCHED: If no items match, return empty \`parsed_items: []\` and \`clarification_needed: null\`.
 6. INCOMPLETE FRAGMENTS: If the transcript appears to be cut off mid-sentence (e.g., ends with 'also I would love to add...' or similar incomplete phrasing), do NOT guess what the incomplete item might be, even if it fuzzy-matches a menu item. Instead, only return the items that were CLEARLY and COMPLETELY stated, and set clarification_needed to something like: 'It looks like you were about to add something else — what would you like?'`;
 
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env['GROQ_API_KEY'];
   if (!apiKey) throw new Error("GROQ_API_KEY is missing");
 
   const groq = new Groq({ apiKey });

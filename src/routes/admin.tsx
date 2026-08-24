@@ -19,6 +19,10 @@ export const Route = createFileRoute("/admin")({
       throw redirect({ to: "/register-restaurant" });
     }
 
+    if (restaurant.deactivated_at) {
+      throw redirect({ to: "/auth/reactivate" });
+    }
+
     return { user, session, restaurant };
   },
   component: AdminLayout,
@@ -33,7 +37,9 @@ function AdminLayout() {
     { name: "Menu", path: "/admin/menu" },
     { name: "Tables & QR", path: "/admin/tables" },
     { name: "Coupons", path: "/admin/coupons" },
+    { name: "Loyalty", path: "/admin/loyalty" },
     { name: "Branding", path: "/admin/branding" },
+    { name: "Settings", path: "/admin/settings" },
   ];
 
   const queryClient = useQueryClient();

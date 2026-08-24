@@ -52,13 +52,13 @@ export const upsertMenuItemFn = createServerFn({ method: "POST" })
     if (itemData.id) {
       const { error } = await supabaseAdmin
         .from("menu_items")
-        .update(itemData)
+        .update(itemData as any)
         .eq("id", itemData.id);
       if (error) throw error;
     } else {
       const { error } = await supabaseAdmin
         .from("menu_items")
-        .insert(itemData);
+        .insert(itemData as any);
       if (error) throw error;
     }
     return { ok: true };

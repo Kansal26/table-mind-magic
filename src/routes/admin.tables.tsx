@@ -84,6 +84,7 @@ function AdminTablesPage() {
 
     for (let i = 0; i < tables.length; i++) {
       const table = tables[i];
+      if (!table) continue;
       const url = getTableUrl(table.qr_token);
       try {
         const dataUrl = await QRCode.toDataURL(url, { width: 512, margin: 0 });

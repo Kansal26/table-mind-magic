@@ -18,10 +18,13 @@ import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticate
 import { Route as AdminBrandingRouteImport } from './routes/admin.branding'
 import { Route as AdminCouponsRouteImport } from './routes/admin.coupons'
 import { Route as AdminDashboardRouteImport } from './routes/admin.dashboard'
+import { Route as AdminLoyaltyRouteImport } from './routes/admin.loyalty'
 import { Route as AdminMenuRouteImport } from './routes/admin.menu'
+import { Route as AdminSettingsRouteImport } from './routes/admin.settings'
 import { Route as AdminTablesRouteImport } from './routes/admin.tables'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 import { Route as AuthLoginRouteImport } from './routes/auth.login'
+import { Route as AuthReactivateRouteImport } from './routes/auth.reactivate'
 import { Route as AuthVerifyRouteImport } from './routes/auth.verify'
 import { Route as FeedbackOrderIdRouteImport } from './routes/feedback.$orderId'
 import { Route as TableQrTokenRouteImport } from './routes/table.$qrToken'
@@ -70,9 +73,19 @@ const AdminDashboardRoute = AdminDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminLoyaltyRoute = AdminLoyaltyRouteImport.update({
+  id: '/loyalty',
+  path: '/loyalty',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminMenuRoute = AdminMenuRouteImport.update({
   id: '/menu',
   path: '/menu',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminSettingsRoute = AdminSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminTablesRoute = AdminTablesRouteImport.update({
@@ -88,6 +101,11 @@ const AuthCallbackRoute = AuthCallbackRouteImport.update({
 const AuthLoginRoute = AuthLoginRouteImport.update({
   id: '/auth/login',
   path: '/auth/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthReactivateRoute = AuthReactivateRouteImport.update({
+  id: '/auth/reactivate',
+  path: '/auth/reactivate',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthVerifyRoute = AuthVerifyRouteImport.update({
@@ -115,10 +133,13 @@ export interface FileRoutesByFullPath {
   '/admin/branding': typeof AdminBrandingRoute
   '/admin/coupons': typeof AdminCouponsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/loyalty': typeof AdminLoyaltyRoute
   '/admin/menu': typeof AdminMenuRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/admin/tables': typeof AdminTablesRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
+  '/auth/reactivate': typeof AuthReactivateRoute
   '/auth/verify': typeof AuthVerifyRoute
   '/feedback/$orderId': typeof FeedbackOrderIdRoute
   '/table/$qrToken': typeof TableQrTokenRoute
@@ -132,10 +153,13 @@ export interface FileRoutesByTo {
   '/admin/branding': typeof AdminBrandingRoute
   '/admin/coupons': typeof AdminCouponsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/loyalty': typeof AdminLoyaltyRoute
   '/admin/menu': typeof AdminMenuRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/admin/tables': typeof AdminTablesRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
+  '/auth/reactivate': typeof AuthReactivateRoute
   '/auth/verify': typeof AuthVerifyRoute
   '/feedback/$orderId': typeof FeedbackOrderIdRoute
   '/table/$qrToken': typeof TableQrTokenRoute
@@ -151,10 +175,13 @@ export interface FileRoutesById {
   '/admin/branding': typeof AdminBrandingRoute
   '/admin/coupons': typeof AdminCouponsRoute
   '/admin/dashboard': typeof AdminDashboardRoute
+  '/admin/loyalty': typeof AdminLoyaltyRoute
   '/admin/menu': typeof AdminMenuRoute
+  '/admin/settings': typeof AdminSettingsRoute
   '/admin/tables': typeof AdminTablesRoute
   '/auth/callback': typeof AuthCallbackRoute
   '/auth/login': typeof AuthLoginRoute
+  '/auth/reactivate': typeof AuthReactivateRoute
   '/auth/verify': typeof AuthVerifyRoute
   '/feedback/$orderId': typeof FeedbackOrderIdRoute
   '/table/$qrToken': typeof TableQrTokenRoute
@@ -170,10 +197,13 @@ export interface FileRouteTypes {
     | '/admin/branding'
     | '/admin/coupons'
     | '/admin/dashboard'
+    | '/admin/loyalty'
     | '/admin/menu'
+    | '/admin/settings'
     | '/admin/tables'
     | '/auth/callback'
     | '/auth/login'
+    | '/auth/reactivate'
     | '/auth/verify'
     | '/feedback/$orderId'
     | '/table/$qrToken'
@@ -187,10 +217,13 @@ export interface FileRouteTypes {
     | '/admin/branding'
     | '/admin/coupons'
     | '/admin/dashboard'
+    | '/admin/loyalty'
     | '/admin/menu'
+    | '/admin/settings'
     | '/admin/tables'
     | '/auth/callback'
     | '/auth/login'
+    | '/auth/reactivate'
     | '/auth/verify'
     | '/feedback/$orderId'
     | '/table/$qrToken'
@@ -205,10 +238,13 @@ export interface FileRouteTypes {
     | '/admin/branding'
     | '/admin/coupons'
     | '/admin/dashboard'
+    | '/admin/loyalty'
     | '/admin/menu'
+    | '/admin/settings'
     | '/admin/tables'
     | '/auth/callback'
     | '/auth/login'
+    | '/auth/reactivate'
     | '/auth/verify'
     | '/feedback/$orderId'
     | '/table/$qrToken'
@@ -222,6 +258,7 @@ export interface RootRouteChildren {
   RegisterRestaurantRoute: typeof RegisterRestaurantRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
   AuthLoginRoute: typeof AuthLoginRoute
+  AuthReactivateRoute: typeof AuthReactivateRoute
   AuthVerifyRoute: typeof AuthVerifyRoute
   FeedbackOrderIdRoute: typeof FeedbackOrderIdRoute
   TableQrTokenRoute: typeof TableQrTokenRoute
@@ -292,11 +329,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminDashboardRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/loyalty': {
+      id: '/admin/loyalty'
+      path: '/loyalty'
+      fullPath: '/admin/loyalty'
+      preLoaderRoute: typeof AdminLoyaltyRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/menu': {
       id: '/admin/menu'
       path: '/menu'
       fullPath: '/admin/menu'
       preLoaderRoute: typeof AdminMenuRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/settings': {
+      id: '/admin/settings'
+      path: '/settings'
+      fullPath: '/admin/settings'
+      preLoaderRoute: typeof AdminSettingsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/tables': {
@@ -318,6 +369,13 @@ declare module '@tanstack/react-router' {
       path: '/auth/login'
       fullPath: '/auth/login'
       preLoaderRoute: typeof AuthLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth/reactivate': {
+      id: '/auth/reactivate'
+      path: '/auth/reactivate'
+      fullPath: '/auth/reactivate'
+      preLoaderRoute: typeof AuthReactivateRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/verify': {
@@ -359,7 +417,9 @@ interface AdminRouteChildren {
   AdminBrandingRoute: typeof AdminBrandingRoute
   AdminCouponsRoute: typeof AdminCouponsRoute
   AdminDashboardRoute: typeof AdminDashboardRoute
+  AdminLoyaltyRoute: typeof AdminLoyaltyRoute
   AdminMenuRoute: typeof AdminMenuRoute
+  AdminSettingsRoute: typeof AdminSettingsRoute
   AdminTablesRoute: typeof AdminTablesRoute
 }
 
@@ -367,7 +427,9 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminBrandingRoute: AdminBrandingRoute,
   AdminCouponsRoute: AdminCouponsRoute,
   AdminDashboardRoute: AdminDashboardRoute,
+  AdminLoyaltyRoute: AdminLoyaltyRoute,
   AdminMenuRoute: AdminMenuRoute,
+  AdminSettingsRoute: AdminSettingsRoute,
   AdminTablesRoute: AdminTablesRoute,
 }
 
@@ -381,6 +443,7 @@ const rootRouteChildren: RootRouteChildren = {
   RegisterRestaurantRoute: RegisterRestaurantRoute,
   AuthCallbackRoute: AuthCallbackRoute,
   AuthLoginRoute: AuthLoginRoute,
+  AuthReactivateRoute: AuthReactivateRoute,
   AuthVerifyRoute: AuthVerifyRoute,
   FeedbackOrderIdRoute: FeedbackOrderIdRoute,
   TableQrTokenRoute: TableQrTokenRoute,

@@ -87,7 +87,7 @@ function ProfilePage() {
     if (!profile) return;
     
     if (!profile.name && user?.user_metadata) {
-      setName(user.user_metadata.full_name || user.user_metadata.name || "");
+      setName(user.user_metadata['full_name'] || user.user_metadata['name'] || "");
     } else {
       setName(profile.name ?? "");
     }
@@ -130,7 +130,7 @@ function ProfilePage() {
     );
   }
 
-  const userNameDisplay = user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || "?";
+  const userNameDisplay = user?.user_metadata?.['full_name'] || user?.user_metadata?.['name'] || user?.email || "?";
   const initials = userNameDisplay.split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase();
 
   return (
@@ -138,9 +138,9 @@ function ProfilePage() {
       <div className="mx-auto max-w-lg">
         <header className="flex items-start justify-between pt-8">
           <div className="flex items-center gap-4">
-            {user?.user_metadata?.avatar_url ? (
+            {user?.user_metadata?.['avatar_url'] || user?.user_metadata?.['picture'] ? (
               <img
-                src={user.user_metadata.avatar_url}
+                src={user.user_metadata['avatar_url'] || user.user_metadata['picture']}
                 alt="Profile"
                 className="size-12 rounded-full object-cover"
               />
@@ -161,14 +161,16 @@ function ProfilePage() {
           </Button>
         </header>
 
-        {walletQuery.data !== undefined && (
-          <section className="mt-8 rounded-xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-medium text-muted-foreground">Wallet Balance</h2>
-              <p className="text-2xl font-display text-primary mt-1">₹{walletQuery.data.balance}</p>
-            </div>
-            <div className="flex size-10 items-center justify-center rounded-full bg-primary/20 text-primary">
-              <Check className="size-5" />
+        {walletQuery.data?.balances && walletQuery.data.balances.length > 0 && (
+          <section className="mt-8 rounded-xl border border-primary/30 bg-primary/5 p-4">
+            <h2 className="text-sm font-medium text-muted-foreground mb-3">Restaurant Points</h2>
+            <div className="space-y-3">
+              {walletQuery.data.balances.map((item: any) => (
+                <div key={item.restaurantId} className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-foreground">{item.restaurantName}</span>
+                  <span className="text-sm font-medium text-primary">{item.balance} pts</span>
+                </div>
+              ))}
             </div>
           </section>
         )}

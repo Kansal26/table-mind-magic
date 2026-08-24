@@ -6,15 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
+import { getOwnerRestaurantFn } from "@/lib/admin.functions";
 
 type LoginSearch = { redirect?: string; table?: string; order?: string };
 
 export const Route = createFileRoute("/auth/login")({
-  validateSearch: (search: Record<string, unknown>): LoginSearch => ({
-    redirect: search['redirect'] ? String(search['redirect']) : undefined,
-    table: search['table'] ? String(search['table']) : undefined,
-    order: search['order'] ? String(search['order']) : undefined,
-  }),
+  validateSearch: (search: Record<string, unknown>): LoginSearch => {
+    const s: LoginSearch = {};
+    if (search['redirect']) s.redirect = String(search['redirect']);
+    if (search['table']) s.table = String(search['table']);
+    if (search['order']) s.order = String(search['order']);
+    return s;
+  },
   head: () => ({
     meta: [
       { title: "Sign in — TableMind" },
@@ -37,10 +40,12 @@ function LoginPage() {
 
   async function handleGoogleSignIn() {
     setError(null);
+    const safeRedirect = search.redirect && /^\/[a-zA-Z0-9\-_\/]*$/.test(search.redirect) ? search.redirect : null;
+    const redirectQuery = safeRedirect ? `?redirect=${encodeURIComponent(safeRedirect)}` : '';
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback${redirectQuery}`,
       },
     });
     if (error) setError(error.message);
@@ -80,8 +85,26 @@ function LoginPage() {
       if (signInError) {
         setError(signInError.message);
       } else {
-        const redirectPath = search.redirect || "/profile";
-        navigate({ to: redirectPath as any, search });
+        const safeRedirect = search.redirect && /^\/[a-zA-Z0-9\-_\/]*$/.test(search.redirect) ? search.redirect : null;
+        if (safeRedirect) {
+          navigate({ to: safeRedirect as any, search });
+        } else {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session) {
+            const restaurant = await getOwnerRestaurantFn({ data: { token: session.access_token } });
+            if (restaurant) {
+              if (restaurant.deactivated_at) {
+                navigate({ to: "/auth/reactivate" as any });
+              } else {
+                navigate({ to: "/admin/dashboard" as any });
+              }
+            } else {
+              navigate({ to: "/register-restaurant" as any });
+            }
+          } else {
+            navigate({ to: "/profile" as any });
+          }
+        }
       }
     }
   }

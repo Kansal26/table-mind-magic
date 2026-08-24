@@ -21,7 +21,7 @@ export function rateLimit(userId: string, action: string, limit: number, windowM
   try {
     const req = getRequest();
     if (req) {
-      ip = req.headers.get("x-forwarded-for")?.split(",")[0].trim() 
+      ip = (req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()) 
         || req.headers.get("x-real-ip") 
         || "unknown";
     }

@@ -70,7 +70,7 @@ function CheckoutPage() {
           filter: `id=eq.${orderId}`,
         },
         (payload) => {
-          if (payload.new.status === "paid") {
+          if ((payload.new as any).status === "paid") {
             queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
             toast.success("Order has been paid by someone at your table!");
           }
@@ -119,19 +119,19 @@ function CheckoutPage() {
     },
   });
 
-  const walletQuery = useQuery({
-    queryKey: ["wallet", user?.id],
+  const loyaltyQuery = useQuery({
+    queryKey: ["loyalty", qrToken, user?.id],
     queryFn: async () => {
-      const { getWalletBalanceFn } = await import("@/lib/wallet.functions");
-      return getWalletBalanceFn({ data: { userId: user!.id } });
+      const { getLoyaltyDataFn } = await import("@/lib/wallet.functions");
+      return getLoyaltyDataFn({ data: { qrToken, userId: user!.id } });
     },
-    enabled: !!user,
+    enabled: !!user && !!qrToken,
   });
 
-  const toggleCreditsMutation = useMutation({
-    mutationFn: async (useCredits: boolean) => {
-      const { toggleCreditsFn } = await import("@/lib/wallet.functions");
-      return toggleCreditsFn({ data: { qrToken, orderId, useCredits } });
+  const redeemPointsMutation = useMutation({
+    mutationFn: async (pointsRedeemed: number) => {
+      const { redeemPointsFn } = await import("@/lib/wallet.functions");
+      return redeemPointsFn({ data: { qrToken, orderId, pointsRedeemed } });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["checkout", qrToken, orderId] });
@@ -316,7 +316,7 @@ function CheckoutPage() {
               onClick={() =>
                 navigate({
                   to: "/auth/login",
-                  search: { redirect: "checkout", table: qrToken, order: orderId },
+                  search: { redirect: `/table/${qrToken}`, table: qrToken, order: orderId },
                 })
               }
             >
@@ -390,7 +390,7 @@ function CheckoutPage() {
           )}
           {order.credits_applied > 0 && (
             <div className="flex justify-between text-primary">
-              <dt>Wallet Credits</dt>
+              <dt>Points Discount</dt>
               <dd>-{money(order.credits_applied)}</dd>
             </div>
           )}
@@ -437,32 +437,57 @@ function CheckoutPage() {
           </div>
         )}
 
-        {/* Credits Section */}
-        {user && walletQuery.data && walletQuery.data.balance > 0 && (
-          <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-soft">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Wallet Credits</Label>
-                <p className="text-sm text-muted-foreground">Balance: {money(walletQuery.data.balance)}</p>
+        {/* Loyalty Points Section */}
+        {(() => {
+          if (!user || !loyaltyQuery.data?.settings || !loyaltyQuery.data?.settings.enabled) return null;
+          const { settings, balance } = loyaltyQuery.data;
+          if (balance <= 0) return null;
+          if (order.subtotal < (settings.min_order_value_to_redeem || 0)) return null;
+
+          const pointsPerRupee = settings.points_per_rupee || 0;
+          const pointsNeededForFree = pointsPerRupee > 0 ? Math.ceil((order.subtotal - order.discount_amount) / pointsPerRupee) : 0;
+          const maxRedeemable = Math.min(
+            balance,
+            settings.max_points_redeemable_per_order || balance,
+            pointsNeededForFree
+          );
+
+          if (maxRedeemable <= 0) return null;
+
+          return (
+            <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-soft">
+              <div className="mb-2 flex items-center justify-between">
+                <Label className="text-base">Redeem Points</Label>
+                {redeemPointsMutation.isPending && <Loader2 className="size-4 animate-spin text-primary" />}
               </div>
-              <div className="flex items-center gap-2">
-                {toggleCreditsMutation.isPending ? (
-                  <Loader2 className="size-5 animate-spin text-primary" />
-                ) : (
-                  <label className="relative inline-flex cursor-pointer items-center">
-                    <input
-                      type="checkbox"
-                      className="peer sr-only"
-                      checked={order.use_credits || false}
-                      onChange={(e) => toggleCreditsMutation.mutate(e.target.checked)}
-                    />
-                    <div className="peer h-6 w-11 rounded-full bg-border after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none"></div>
-                  </label>
-                )}
+              <p className="text-sm text-muted-foreground mb-4">
+                You have <strong>{balance} points</strong> ({money(balance * pointsPerRupee)} value) — 
+                Redeem up to {maxRedeemable} points on this order.
+              </p>
+              
+              <div className="flex items-center gap-4">
+                <input
+                  type="range"
+                  min="0"
+                  max={maxRedeemable}
+                  step="1"
+                  value={order.points_redeemed || 0}
+                  onChange={(e) => redeemPointsMutation.mutate(parseInt(e.target.value, 10))}
+                  disabled={redeemPointsMutation.isPending}
+                  className="flex-1 accent-primary"
+                />
+                <span className="w-12 text-right font-medium text-foreground">
+                  {order.points_redeemed || 0}
+                </span>
               </div>
+              {(order.points_redeemed || 0) > 0 && (
+                <p className="mt-2 text-xs text-primary font-medium">
+                  Saving {money((order.points_redeemed || 0) * pointsPerRupee)}
+                </p>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {!user && (
           <div className="mt-6 rounded-xl border border-border bg-card p-4 shadow-soft">

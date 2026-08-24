@@ -147,13 +147,14 @@ function AdminDashboardPage() {
         playBeep();
         
         // Fetch table name for the banner
-        const { data: tableData } = await supabase.from("tables").select("label").eq("id", payload.new.table_id).single();
+        const newCall = payload.new as any;
+        const { data: tableData } = await supabase.from("tables").select("label").eq("id", newCall.table_id).single();
         
         setIncomingCall({
-          id: payload.new.id,
-          reason: payload.new.reason,
+          id: newCall.id,
+          reason: newCall.reason,
           table_label: tableData?.label || "Unknown Table",
-          created_at: payload.new.created_at
+          created_at: newCall.created_at
         });
         
         queryClient.invalidateQueries({ queryKey: ["admin-waiter-calls", restaurant.id] });

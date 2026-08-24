@@ -64,7 +64,7 @@ export function VoiceOrder({
   });
 
   useEffect(() => {
-    const SpeechRec = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRec) {
       setSupported(false);
       return;
@@ -250,16 +250,16 @@ export function VoiceOrder({
                       <p className="text-xs text-muted-foreground">{item.customizations}</p>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 bg-secondary rounded-full p-1">
+                  <div className="flex items-center gap-3 bg-muted/50 rounded-full p-1">
                     <button
-                      className="size-7 rounded-full bg-background grid place-items-center"
+                      className="size-7 rounded-full bg-background border shadow-sm grid place-items-center"
                       onClick={() => updateItemQty(item.menu_item_id, -1)}
                     >
                       {item.quantity === 1 ? <Trash2 className="size-3.5 text-destructive" /> : <Minus className="size-3.5" />}
                     </button>
-                    <span className="text-sm font-medium w-4 text-center">{item.quantity}</span>
+                    <span className="text-sm font-medium w-4 text-center text-foreground">{item.quantity}</span>
                     <button
-                      className="size-7 rounded-full bg-background grid place-items-center"
+                      className="size-7 rounded-full bg-background border shadow-sm grid place-items-center"
                       onClick={() => updateItemQty(item.menu_item_id, 1)}
                     >
                       <Plus className="size-3.5" />

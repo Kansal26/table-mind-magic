@@ -93,7 +93,7 @@ export async function resolveTableId(qrToken: string): Promise<string | null> {
 
 /** Returns the order only when it belongs to a session at the caller's table. */
 export async function requireOwnedOrder(tableId: string, orderId: string) {
-  const { data, error } = await (supabaseAdmin as any)
+  const { data, error } = await supabaseAdmin
     .from("orders")
     .select("id, status, subtotal, tax, discount_amount, credits_applied, use_credits, total, session_id, user_id, sessions!inner(table_id)")
     .eq("id", orderId)
@@ -141,7 +141,7 @@ export async function recalcTotals(orderId: string) {
   // DISCOUNT LOGIC
   let appliedDiscount = 0;
 
-  const { data: currentDiscount } = await (supabaseAdmin as any)
+  const { data: currentDiscount } = await supabaseAdmin
     .from("order_discounts")
     .select("id, coupon_id")
     .eq("order_id", orderId)
@@ -157,9 +157,9 @@ export async function recalcTotals(orderId: string) {
       const stillEligible = eligibleCoupons.find(c => c.id === currentDiscount.coupon_id);
       if (stillEligible) {
         appliedDiscount = stillEligible.calculated_discount;
-        await (supabaseAdmin as any).from("order_discounts").update({ discount_amount: appliedDiscount }).eq("id", currentDiscount.id);
+        await supabaseAdmin.from("order_discounts").update({ discount_amount: appliedDiscount }).eq("id", currentDiscount.id);
       } else {
-        await (supabaseAdmin as any).from("order_discounts").delete().eq("id", currentDiscount.id);
+        await supabaseAdmin.from("order_discounts").delete().eq("id", currentDiscount.id);
       }
     }
   } else if (eligibleCoupons.length > 0) {
@@ -167,7 +167,7 @@ export async function recalcTotals(orderId: string) {
     const best = eligibleCoupons.sort((a, b) => b.calculated_discount - a.calculated_discount)[0];
     if (best) {
       appliedDiscount = best.calculated_discount;
-      await (supabaseAdmin as any).from("order_discounts").insert({
+      await supabaseAdmin.from("order_discounts").insert({
         order_id: orderId,
         coupon_id: best.id,
         discount_amount: appliedDiscount
@@ -175,33 +175,74 @@ export async function recalcTotals(orderId: string) {
     }
   }
 
-  const { data: order } = await (supabaseAdmin as any)
+  const { data: order, error: orderErr } = await supabaseAdmin
     .from("orders")
-    .select("user_id, use_credits")
+    .select("user_id, points_redeemed, sessions!inner(tables!inner(restaurant_id))")
     .eq("id", orderId)
     .single();
 
+  if (orderErr) {
+    console.error("Error fetching order in recalcTotals:", orderErr);
+    throw orderErr;
+  }
+  const restaurantId = (order as any).sessions?.tables?.restaurant_id;
+
   let creditsApplied = 0;
-  if (order?.use_credits && order?.user_id) {
+  let finalPointsRedeemed = order?.points_redeemed || 0;
+  
+  if (order?.points_redeemed && order.points_redeemed > 0 && order?.user_id) {
     const { getWalletBalance } = await import("./wallet.server");
-    const balance = await getWalletBalance(order.user_id);
-    const maxCredits = Math.max(0, subtotal - appliedDiscount);
-    creditsApplied = Math.min(balance, maxCredits);
+    const balance = await getWalletBalance(order.user_id!, restaurantId!);
+    
+    // Read loyalty settings
+    const { data: settings } = await supabaseAdmin
+      .from("loyalty_settings")
+      .select("points_per_rupee, min_order_value_to_redeem, max_points_redeemable_per_order")
+      .eq("restaurant_id", restaurantId!)
+      .single();
+
+    const pointsPerRupee = settings?.points_per_rupee || 0;
+    const minOrderVal = settings?.min_order_value_to_redeem || 0;
+    const maxRedeemable = settings?.max_points_redeemable_per_order || 0;
+    
+    // Check min order value
+    if (minOrderVal > 0 && (subtotal - appliedDiscount) < minOrderVal) {
+      finalPointsRedeemed = 0;
+    } else {
+      // Ensure they don't redeem more points than they have
+      finalPointsRedeemed = Math.min(order.points_redeemed, balance);
+      
+      // Enforce max points limit
+      if (maxRedeemable > 0) {
+        finalPointsRedeemed = Math.min(finalPointsRedeemed, maxRedeemable);
+      }
+      
+      // Enforce bill total limit (don't burn points beyond bill total)
+      const maxCredits = Math.max(0, subtotal - appliedDiscount);
+      if (pointsPerRupee > 0) {
+        const pointsNeededForFree = Math.ceil(maxCredits / pointsPerRupee);
+        finalPointsRedeemed = Math.min(finalPointsRedeemed, pointsNeededForFree);
+      }
+      
+      // Calculate ₹ discount
+      const calculatedDiscount = finalPointsRedeemed * pointsPerRupee;
+      creditsApplied = Math.min(calculatedDiscount, maxCredits);
+    }
   }
 
   const taxableAmount = Math.max(0, subtotal - appliedDiscount - creditsApplied);
   const tax = Math.round(taxableAmount * TAX_RATE * 100) / 100;
   const total = Math.max(0, Math.round((taxableAmount + tax) * 100) / 100);
   
-  const { error } = await (supabaseAdmin as any)
+  const { error } = await supabaseAdmin
     .from("orders")
-    .update({ subtotal, tax, discount_amount: appliedDiscount, credits_applied: creditsApplied, total })
+    .update({ subtotal, tax, discount_amount: appliedDiscount, credits_applied: creditsApplied, total, points_redeemed: finalPointsRedeemed })
     .eq("id", orderId);
   if (error) throw error;
 }
 
 export async function findCartOrder(sessionId: string) {
-  const { data, error } = await (supabaseAdmin as any)
+  const { data, error } = await supabaseAdmin
     .from("orders")
     .select("id, status, subtotal, tax, discount_amount, credits_applied, use_credits, total, user_id")
     .eq("session_id", sessionId)

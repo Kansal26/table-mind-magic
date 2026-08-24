@@ -9,7 +9,7 @@ async function requireRestaurantOwnership(token: string, restaurantId: string) {
   const user = await verifyAdminAuth(token);
   const { data: owns } = await supabaseAdmin
     .from("restaurants")
-    .select("id")
+    .select("id, owner_id")
     .eq("id", restaurantId)
     .eq("owner_id", user.id)
     .single();
@@ -46,7 +46,7 @@ export const callWaiterFn = createServerFn({ method: "POST" })
     // Spam Protection: check if pending call exists in last 2 minutes
     const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     const { data: recentCalls } = await supabaseAdmin
-      .from("waiter_calls" as any)
+      .from("waiter_calls")
       .select("id")
       .eq("session_id", sessionId)
       .gte("created_at", twoMinutesAgo);
@@ -57,7 +57,7 @@ export const callWaiterFn = createServerFn({ method: "POST" })
 
     // Insert call
     const { data: call, error } = await supabaseAdmin
-      .from("waiter_calls" as any)
+      .from("waiter_calls")
       .insert({
         session_id: sessionId,
         table_id: tableId,

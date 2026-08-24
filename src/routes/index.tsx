@@ -115,8 +115,8 @@ const ownerPillars = [
 function Index() {
   const { user } = useAuth();
 
-  const getStartedTo = user ? "/table/$qrToken" : "/auth/login";
-  const getStartedParams = user ? { qrToken: "demo-table-12" } : undefined;
+  const getStartedTo = user ? "/admin/dashboard" : "/auth/login";
+  const getStartedSearch = user ? undefined : { redirect: "/admin/dashboard" };
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -150,8 +150,8 @@ function Index() {
                   Restaurant Dashboard
                 </Link>
                 <Link
-                  to={getStartedTo as any}
-                  params={getStartedParams as any}
+                  to="/table/$qrToken"
+                  params={{ qrToken: "demo-table-12" }}
                   className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground transition-colors hover:bg-primary"
                 >
                   Order Food
@@ -160,6 +160,7 @@ function Index() {
             ) : (
               <Link
                 to="/auth/login"
+                search={{ redirect: "/admin/dashboard" }}
                 className="inline-flex shrink-0 items-center justify-center rounded-full bg-secondary px-4 py-2 text-sm font-semibold text-secondary-foreground transition-colors hover:bg-primary"
               >
                 Sign In / Get Started
@@ -187,7 +188,7 @@ function Index() {
             <div className="mt-8 flex flex-wrap items-center gap-x-7 gap-y-4">
               <Link
                 to={getStartedTo as any}
-                params={getStartedParams as any}
+                search={getStartedSearch as any}
                 className="inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground shadow-soft transition-colors hover:bg-primary-deep"
               >
                 Get Started <ArrowRight className="size-4" />
@@ -298,7 +299,7 @@ function Index() {
               </p>
               <Link
                 to={getStartedTo as any}
-                params={getStartedParams}
+                search={getStartedSearch as any}
                 className="mt-8 inline-flex items-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-deep"
               >
                 Talk to us about your restaurant <ArrowRight className="size-4" />
@@ -408,7 +409,7 @@ function Index() {
             </p>
             <Link
               to={getStartedTo as any}
-              params={getStartedParams as any}
+              search={getStartedSearch as any}
               className="mt-9 inline-flex items-center gap-2 rounded-full bg-secondary px-7 py-3.5 text-sm font-semibold text-secondary-foreground transition-transform hover:-translate-y-0.5"
             >
               Get Started <ArrowRight className="size-4" />

@@ -20,6 +20,55 @@ export const getOwnerRestaurantFn = createServerFn({ method: "POST" })
     return restaurant || null;
   });
 
+export const getLoyaltySettingsFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ token: z.string(), restaurantId: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    const { data: owns } = await supabaseAdmin.from("restaurants").select("id").eq("id", data.restaurantId).eq("owner_id", user.id).single();
+    if (!owns) throw new Error("Unauthorized");
+
+    const { data: settings } = await supabaseAdmin
+      .from("loyalty_settings")
+      .select("*")
+      .eq("restaurant_id", data.restaurantId)
+      .maybeSingle();
+      
+    return settings || null;
+  });
+
+const updateLoyaltySchema = z.object({
+  token: z.string(),
+  restaurantId: z.string().uuid(),
+  enabled: z.boolean(),
+  points_for_rating: z.number().int().min(0),
+  points_for_comment: z.number().int().min(0),
+  points_for_question: z.number().int().min(0),
+  points_per_rupee: z.number().min(0),
+  min_order_value_to_redeem: z.number().min(0),
+  max_points_redeemable_per_order: z.number().int().min(0),
+  points_expiry_days: z.number().int().nullable()
+});
+
+export const updateLoyaltySettingsFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => updateLoyaltySchema.parse(data))
+  .handler(async ({ data }) => {
+    const user = await verifyAdminAuth(data.token);
+    const { data: owns } = await supabaseAdmin.from("restaurants").select("id").eq("id", data.restaurantId).eq("owner_id", user.id).single();
+    if (!owns) throw new Error("Unauthorized");
+
+    const { token, restaurantId, ...updates } = data;
+
+    const { error } = await supabaseAdmin
+      .from("loyalty_settings")
+      .upsert({
+        restaurant_id: restaurantId,
+        ...updates
+      }, { onConflict: "restaurant_id" });
+
+    if (error) throw error;
+    return { success: true };
+  });
+
 export const forceCloseSessionFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => z.object({ token: z.string(), sessionId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
@@ -181,8 +230,8 @@ export const fetchAnalyticsFn = createServerFn({ method: "POST" })
             if (!itemRatings[menuItem.id]) {
               itemRatings[menuItem.id] = { name: menuItem.name, sum: 0, count: 0 };
             }
-            itemRatings[menuItem.id].sum += fb.rating;
-            itemRatings[menuItem.id].count += 1;
+            itemRatings[menuItem.id]!.sum += fb.rating || 0;
+            itemRatings[menuItem.id]!.count += 1;
           }
         }
       }
@@ -207,10 +256,10 @@ export const fetchAnalyticsFn = createServerFn({ method: "POST" })
         const c = d.coupons as any;
         if (c) {
           if (!couponStats[c.code]) {
-            couponStats[c.code] = { name: c.name, code: c.code, redeemed: 0, total_discount: 0 };
+            couponStats[c.code] = { name: c.name || c.code, code: c.code, redeemed: 0, total_discount: 0 };
           }
-          couponStats[c.code].redeemed++;
-          couponStats[c.code].total_discount += Number(d.discount_amount) || 0;
+          couponStats[c.code]!.redeemed++;
+          couponStats[c.code]!.total_discount += Number(d.discount_amount) || 0;
         }
       }
     }
@@ -282,14 +331,16 @@ export const exportRevenueSummaryFn = createServerFn({ method: "POST" })
 
     const dailyStats: Record<string, any> = {};
     for (const o of orders) {
+      if (!o.created_at) continue;
       const dateStr = new Date(o.created_at).toISOString().split('T')[0];
+      if (!dateStr) continue;
       if (!dailyStats[dateStr]) {
         dailyStats[dateStr] = { date: dateStr, orders: 0, gross: 0, discounts: 0, net: 0 };
       }
-      dailyStats[dateStr].orders += 1;
-      dailyStats[dateStr].gross += Number(o.subtotal || 0);
-      dailyStats[dateStr].discounts += Number(o.discount_amount || 0);
-      dailyStats[dateStr].net += Number(o.total || 0);
+      dailyStats[dateStr]!.orders += 1;
+      dailyStats[dateStr]!.gross += Number(o.subtotal || 0);
+      dailyStats[dateStr]!.discounts += Number(o.discount_amount || 0);
+      dailyStats[dateStr]!.net += Number(o.total || 0);
     }
 
     return Object.values(dailyStats).sort((a: any, b: any) => a.date.localeCompare(b.date));

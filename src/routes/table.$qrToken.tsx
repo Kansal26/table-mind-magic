@@ -417,8 +417,9 @@ function TableMenuPage() {
         },
         (payload) => {
           invalidateCart();
-          if (payload.new.status === "paid") {
+          if ((payload.new as any).status === "paid") {
             toast.success("Order has been paid!");
+            queryClient.invalidateQueries({ queryKey: ["cart", qrToken] });
           }
         }
       )
@@ -514,6 +515,22 @@ function TableMenuPage() {
           <h1 className="font-display text-2xl text-foreground">This code isn't active</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Ask a member of staff for an up-to-date table code.
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!ctx.isActive) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background px-6 text-center">
+        <div>
+          <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-warning/10">
+            <AlertCircle className="size-6 text-warning" />
+          </div>
+          <h1 className="font-display text-2xl text-foreground">{ctx.restaurantName}</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This restaurant is temporarily unavailable.
           </p>
         </div>
       </main>
@@ -700,7 +717,7 @@ function TableMenuPage() {
                   <Button variant="ghost" size="icon" onClick={() => setQty((q) => Math.max(1, q - 1))}>
                     <Minus />
                   </Button>
-                  <span className="w-6 text-center text-sm font-medium">{qty}</span>
+                  <span className="w-8 text-center text-sm font-medium bg-secondary text-secondary-foreground rounded py-1">{qty}</span>
                   <Button variant="ghost" size="icon" onClick={() => setQty((q) => q + 1)}>
                     <Plus />
                   </Button>
@@ -833,7 +850,7 @@ function TableMenuPage() {
                               >
                                 <Minus className="size-3" />
                               </Button>
-                              <span className="w-6 text-center text-sm font-medium">{line.qty}</span>
+                              <span className="w-8 text-center text-sm font-medium bg-secondary text-secondary-foreground rounded py-1">{line.qty}</span>
                               <Button
                                 variant="outline"
                                 size="icon"
@@ -908,7 +925,7 @@ function TableMenuPage() {
                       >
                         <Minus className="size-3" />
                       </Button>
-                      <span className="w-6 text-center text-sm font-medium">{line.qty}</span>
+                      <span className="w-8 text-center text-sm font-medium bg-secondary text-secondary-foreground rounded py-1">{line.qty}</span>
                       <Button
                         variant="outline"
                         size="icon"

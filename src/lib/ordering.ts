@@ -38,7 +38,7 @@ export type CartLine = {
   added_by_device_token?: string | null;
 };
 
-export type TableContext = {
+type TableContext = {
   tableId: string;
   tableLabel: string;
   restaurantId: string;
@@ -47,16 +47,17 @@ export type TableContext = {
   restaurantTagline: string | null;
   restaurantLogo: string | null;
   restaurantBanner: string | null;
+  isActive: boolean;
   sessionId: string;
 };
-export type Order = {
+type Order = {
   id: string;
   status: string;
   subtotal: number;
   tax: number;
   discount_amount: number;
   credits_applied: number;
-  use_credits: boolean;
+  points_redeemed: number;
   total: number;
 };
 
@@ -82,7 +83,7 @@ export async function fetchMenu(restaurantId: string): Promise<MenuItem[]> {
     .order("category", { ascending: true })
     .order("name", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((item) => ({ ...item, price: Number(item.price) }));
+  return (data ?? []).map((item: any) => ({ ...item, price: Number(item.price) }));
 }
 
 export async function fetchCart(

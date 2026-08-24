@@ -54,7 +54,7 @@ export const resolveTableFn = createServerFn({ method: "POST" })
 
     const { data: table, error } = await supabaseAdmin
       .from("tables")
-      .select("id, label, restaurant_id, restaurants(name, address, tagline, logo_url, banner_url)")
+      .select("id, label, restaurant_id, restaurants(name, address, tagline, logo_url, banner_url, is_active)")
       .eq("id", scope.tableId)
       .maybeSingle();
     if (error) throw error;
@@ -66,6 +66,7 @@ export const resolveTableFn = createServerFn({ method: "POST" })
       tagline: string | null;
       logo_url: string | null;
       banner_url: string | null;
+      is_active: boolean;
     } | null;
 
     return {
@@ -77,6 +78,7 @@ export const resolveTableFn = createServerFn({ method: "POST" })
       restaurantTagline: restaurant?.tagline ?? null,
       restaurantLogo: restaurant?.logo_url ?? null,
       restaurantBanner: restaurant?.banner_url ?? null,
+      isActive: restaurant?.is_active ?? true,
       sessionId: scope.sessionId,
     };
   });
@@ -190,7 +192,7 @@ export const addToCartFn = createServerFn({ method: "POST" })
     // The item must belong to this table's restaurant and be orderable.
     const { data: item, error: itemError } = await supabaseAdmin
       .from("menu_items")
-      .select("id")
+      .select("id, price")
       .eq("id", data.menuItemId)
       .eq("restaurant_id", scope.restaurantId)
       .eq("available", true)
@@ -235,11 +237,11 @@ export const addToCartFn = createServerFn({ method: "POST" })
     }
 
     const notes = data.notes?.trim();
-    const { error } = await (supabaseAdmin as any).from("order_items").insert({
+    const { error } = await supabaseAdmin.from("order_items").insert({
       order_id: orderId,
       menu_item_id: item.id,
       qty: data.qty,
-      customizations: notes ? { notes } : {},
+      customizations: (notes ? { notes } : null) as any,
       allergy_override_ack: data.allergyOverrideAck ?? false,
       added_by_user_id: userId,
       added_by_name: participantName,
@@ -377,7 +379,7 @@ export const getRecommendationsFn = createServerFn({ method: "POST" })
     // --- LLM ENGINE (Priority 2) ---
     if (pastOrders && pastOrders.length >= 2) {
       try {
-        const apiKey = process.env.GROQ_API_KEY;
+        const apiKey = process.env['GROQ_API_KEY'];
         if (!apiKey) throw new Error("GROQ_API_KEY is missing");
         const groq = new Groq({ apiKey });
 
@@ -526,8 +528,8 @@ IMPORTANT RULES:
             const fb = allFeedback.find(f => f.order_id === fboi.order_id);
             if (fb && fb.rating != null) {
               if (!itemRatings[fboi.menu_item_id]) itemRatings[fboi.menu_item_id] = { sum: 0, count: 0 };
-              itemRatings[fboi.menu_item_id].sum += fb.rating;
-              itemRatings[fboi.menu_item_id].count += 1;
+              itemRatings[fboi.menu_item_id]!.sum += fb.rating;
+              itemRatings[fboi.menu_item_id]!.count += 1;
             }
           }
           
@@ -590,7 +592,7 @@ IMPORTANT RULES:
 
     // Fetch Kitchen Load
     const { getKitchenLoad } = await import("./admin.functions");
-    const kitchenLoad = await getKitchenLoad();
+    const kitchenLoad = await getKitchenLoad(scope.restaurantId);
 
     if (kitchenLoad.level === "high") {
       // Deprioritize slow prep items, label fast prep items
@@ -621,7 +623,7 @@ IMPORTANT RULES:
     }));
 
     if (recsToLog.length > 0) {
-      await (supabaseAdmin as any).from("recommendation_logs").insert(recsToLog);
+      await supabaseAdmin.from("recommendation_logs").insert(recsToLog);
     }
 
     return recommendations.map(r => ({ ...r.item, price: Number(r.item.price), _reason: r.reason }));
@@ -710,15 +712,16 @@ export const payOrderFn = createServerFn({ method: "POST" })
     await recalcTotals(order.id);
 
     // Fetch the updated order to get the final credits_applied
-    const { data: updatedOrder } = await (supabaseAdmin as any)
+    const { data: updatedOrder } = await supabaseAdmin
       .from("orders")
-      .select("credits_applied, user_id")
+      .select("credits_applied, points_redeemed, user_id, sessions!inner(tables!inner(restaurant_id))")
       .eq("id", order.id)
       .single();
 
-    if (updatedOrder && updatedOrder.credits_applied > 0 && updatedOrder.user_id) {
+    const pts1 = updatedOrder?.points_redeemed ?? 0;
+    if (updatedOrder && pts1 > 0 && updatedOrder.user_id) {
       const { deductWallet } = await import("./wallet.server");
-      await deductWallet(updatedOrder.user_id, updatedOrder.credits_applied, "Redeemed on order", order.id);
+      await deductWallet(updatedOrder.user_id, pts1, "Redeemed on order", order.id, (updatedOrder as any).sessions.tables.restaurant_id);
     }
 
     const { error } = await supabaseAdmin
@@ -782,8 +785,8 @@ export const payOrderFn = createServerFn({ method: "POST" })
           const { data: ownerData } = await supabaseAdmin.auth.admin.getUserById(ownerId);
           let ownerEmail = ownerData?.user?.email;
 
-          if (!ownerEmail && process.env.RESTAURANT_NOTIFICATION_EMAIL) {
-            ownerEmail = process.env.RESTAURANT_NOTIFICATION_EMAIL;
+          if (!ownerEmail && process.env['RESTAURANT_NOTIFICATION_EMAIL']) {
+            ownerEmail = process.env['RESTAURANT_NOTIFICATION_EMAIL'];
           }
 
           if (ownerEmail) {
@@ -838,8 +841,8 @@ export const createRazorpayOrderFn = createServerFn({ method: "POST" })
     const amountPaise = Math.round(Number(order.total) * 100);
     if (amountPaise < 100) throw new Error("Amount must be at least ₹1.00");
 
-    const keyId = process.env.VITE_RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const keyId = process.env['VITE_RAZORPAY_KEY_ID'] || process.env['RAZORPAY_KEY_ID'];
+    const keySecret = process.env['RAZORPAY_KEY_SECRET'];
 
     if (!keyId || !keySecret) {
       throw new Error(`Missing Razorpay API Keys in backend. ID present: ${!!keyId}, Secret present: ${!!keySecret}. Please restart your dev server.`);
@@ -891,7 +894,7 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
       const body = data.razorpay_order_id + "|" + data.razorpay_payment_id;
       const crypto = await import("crypto");
       const expectedSignature = crypto
-        .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
+        .createHmac("sha256", process.env['RAZORPAY_KEY_SECRET'] as string)
         .update(body.toString())
         .digest("hex");
 
@@ -907,15 +910,15 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
       await recalcTotals(order.id);
 
       // Fetch the updated order to get the final credits_applied
-      const { data: updatedOrder } = await (supabaseAdmin as any)
+      const { data: updatedOrder } = await supabaseAdmin
         .from("orders")
-        .select("credits_applied, user_id")
+        .select("credits_applied, points_redeemed, user_id, sessions!inner(tables!inner(restaurant_id))")
         .eq("id", order.id)
         .single();
-
-      if (updatedOrder && updatedOrder.credits_applied > 0 && updatedOrder.user_id) {
+      const earnedPoints = updatedOrder?.points_redeemed ?? 0;
+      if (updatedOrder && earnedPoints > 0 && updatedOrder.user_id) {
         const { deductWallet } = await import("./wallet.server");
-        await deductWallet(updatedOrder.user_id, updatedOrder.credits_applied, "Redeemed on order", order.id);
+        await deductWallet(updatedOrder.user_id, earnedPoints, "Redeemed on order", order.id, (updatedOrder as any).sessions.tables.restaurant_id);
       }
 
       const { error } = await supabaseAdmin
@@ -938,21 +941,22 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
     try {
       const { sendNewOrderNotification, sendGuestReceiptEmail } = await import("./email.server");
       
-      const { data: tableData } = await (supabaseAdmin as any)
+      const { data: tableData } = await supabaseAdmin
         .from("tables")
         .select("label, restaurant_id")
         .eq("id", tableId)
         .single();
         
       if (tableData) {
-        const { data: restData } = await (supabaseAdmin as any)
-          .from("restaurants")
-          .select("name, owner_id")
-          .eq("id", tableData.restaurant_id)
-          .single();
+          const restData = await supabaseAdmin
+            .from("restaurants")
+            .select("name, owner_id")
+            .eq("id", tableData.restaurant_id)
+            .single()
+            .then(r => r.data as { name: string; owner_id: string | null } | null);
           
         if (restData) {
-          let ownerEmail = process.env.RESTAURANT_NOTIFICATION_EMAIL;
+          let ownerEmail = process.env['RESTAURANT_NOTIFICATION_EMAIL'];
           
           if (restData.owner_id) {
             const { data: { user: ownerUser }, error: userError } = await supabaseAdmin.auth.admin.getUserById(restData.owner_id);
@@ -963,7 +967,7 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
           }
           
           if (ownerEmail) {
-            const { data: items } = await (supabaseAdmin as any)
+            const { data: items } = await supabaseAdmin
               .from("order_items")
               .select("qty, customizations, menu_items(name)")
               .eq("order_id", order.id);
@@ -975,11 +979,11 @@ export const verifyRazorpayPaymentFn = createServerFn({ method: "POST" })
             }));
             
             await sendNewOrderNotification({
-              restaurantName: restData.name,
-              tableName: tableData.label,
+              restaurantName: restData.name || 'Restaurant',
+              tableName: tableData.label || 'Table',
               orderItems: formattedItems,
               subtotal: Number(order.subtotal || 0),
-              discount: Number(order.discount_total || 0),
+              discount: Number(order.discount_amount || 0),
               total: Number(order.total || 0),
               ownerEmail,
               orderId: order.id

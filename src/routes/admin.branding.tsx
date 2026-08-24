@@ -15,7 +15,10 @@ export const Route = createFileRoute("/admin/branding")({
 function AdminBrandingPage() {
   const queryClient = useQueryClient();
   // `restaurant` is already fetched in the layout beforeLoad
-  const { user, session, restaurant } = Route.useRouteContext();
+  const context = Route.useRouteContext();
+  const user = context.user;
+  const session = context.session;
+  const restaurant = context.restaurant as any;
   const token = session.access_token;
   
   const [tagline, setTagline] = useState(restaurant.tagline || "");

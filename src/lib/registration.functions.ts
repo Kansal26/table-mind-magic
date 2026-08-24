@@ -3,6 +3,7 @@ import { z } from "zod";
 import { supabaseAdmin, getSupabaseAuthClient } from "@/integrations/supabase/client.server";
 import { verifyAdminAuth } from "./auth.server";
 import { rateLimit } from "./rate-limit.server";
+import { sendRestaurantWelcomeEmail } from "./email.server";
 
 export const registerRestaurantFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => 
@@ -26,7 +27,7 @@ export const registerRestaurantFn = createServerFn({ method: "POST" })
     // 1. Check if user already owns a restaurant
     const { data: existing } = await sb
       .from("restaurants")
-      .select("id")
+      .select("id, owner_id")
       .eq("owner_id", user.id)
       .maybeSingle();
       
@@ -39,11 +40,11 @@ export const registerRestaurantFn = createServerFn({ method: "POST" })
       .from("restaurants")
       .insert({
         name: data.name,
-        tagline: data.tagline,
-        cuisine_type: data.cuisine_type,
+        tagline: data.tagline ?? null,
+        cuisine_type: data.cuisine_type ?? null,
         city: data.city,
         address: data.address,
-        logo_url: data.logo_url,
+        logo_url: data.logo_url ?? null,
         owner_id: user.id,
         is_active: true
       })
@@ -53,7 +54,7 @@ export const registerRestaurantFn = createServerFn({ method: "POST" })
     if (rError) throw rError;
 
     // 3. Create tables
-    const shortRestId = restaurant.id.substring(0, 8);
+    const shortRestId = restaurant.id!.substring(0, 8);
     const tablesToInsert = [];
     for (let i = 1; i <= data.numTables; i++) {
       // Use a short random string appended to make it globally unique yet short
@@ -74,6 +75,22 @@ export const registerRestaurantFn = createServerFn({ method: "POST" })
       .insert(tablesToInsert);
 
     if (tError) throw tError;
+
+    // 4. Send welcome email
+    try {
+      const { data: { user: authUser } } = await sb.auth.getUser();
+      if (authUser && authUser.email) {
+        const ownerName = authUser.user_metadata?.['full_name'] || data.name;
+
+        await sendRestaurantWelcomeEmail({
+          ownerEmail: authUser.email,
+          restaurantName: data.name,
+          ownerName: ownerName
+        });
+      }
+    } catch (emailError) {
+      console.error('[WELCOME EMAIL] FAILED:', emailError);
+    }
 
     return { ok: true, restaurantId: restaurant.id };
   });

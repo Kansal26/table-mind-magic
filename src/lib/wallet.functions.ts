@@ -50,14 +50,14 @@ export const submitFeedbackFn = createServerFn({ method: "POST" })
     }
   });
 
-const toggleCreditsSchema = z.object({
+const redeemPointsSchema = z.object({
   qrToken: z.string().min(1),
   orderId: z.string().uuid(),
-  useCredits: z.boolean(),
+  pointsRedeemed: z.number().int().min(0),
 });
 
-export const toggleCreditsFn = createServerFn({ method: "POST" })
-  .validator((data: unknown) => toggleCreditsSchema.parse(data))
+export const redeemPointsFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => redeemPointsSchema.parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { recalcTotals, requireOwnedOrder, resolveTableId } = await import("./ordering.server");
@@ -69,12 +69,12 @@ export const toggleCreditsFn = createServerFn({ method: "POST" })
     if (!order) throw new Error("Order not found");
     if (order.status !== "cart") throw new Error("Order is not open");
 
-    // Only signed in users can toggle credits
-    if (!order.user_id) throw new Error("Guests cannot use credits");
+    // Only signed in users can redeem points
+    if (!order.user_id) throw new Error("Guests cannot redeem points");
 
     const { error } = await (supabaseAdmin as any)
       .from("orders")
-      .update({ use_credits: data.useCredits })
+      .update({ points_redeemed: data.pointsRedeemed })
       .eq("id", order.id);
       
     if (error) throw error;
@@ -98,10 +98,68 @@ export const getWalletBalanceFn = createServerFn({ method: "POST" })
   .validator((data: unknown) => z.object({ userId: z.string().uuid() }).parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: wallet } = await (supabaseAdmin as any)
-      .from("wallets")
-      .select("balance")
-      .eq("user_id", data.userId)
+    const { getWalletBalance } = await import("./wallet.server");
+
+    // Get all restaurants where loyalty is enabled
+    const { data: enabledRestaurants } = await (supabaseAdmin as any)
+      .from("loyalty_settings")
+      .select("restaurant_id")
+      .eq("enabled", true);
+
+    if (!enabledRestaurants || enabledRestaurants.length === 0) {
+      return { balances: [] };
+    }
+
+    const balances = [];
+    for (const { restaurant_id } of enabledRestaurants) {
+      const balance = await getWalletBalance(data.userId, restaurant_id);
+      if (balance > 0) {
+        // Fetch restaurant name
+        const { data: rest } = await (supabaseAdmin as any)
+          .from("restaurants")
+          .select("name")
+          .eq("id", restaurant_id)
+          .single();
+        if (rest) {
+          balances.push({
+            restaurantId: restaurant_id,
+            restaurantName: rest.name,
+            balance
+          });
+        }
+      }
+    }
+
+    return { balances };
+  });
+
+export const getLoyaltyDataFn = createServerFn({ method: "POST" })
+  .validator((data: unknown) => z.object({ qrToken: z.string().min(1), userId: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { getWalletBalance } = await import("./wallet.server");
+    const { resolveTableId } = await import("./ordering.server");
+
+    const tableId = await resolveTableId(data.qrToken);
+    if (!tableId) return { settings: null, balance: 0 };
+
+    const { data: table } = await (supabaseAdmin as any)
+      .from("tables")
+      .select("restaurant_id")
+      .eq("id", tableId)
+      .single();
+
+    if (!table) return { settings: null, balance: 0 };
+
+    const { data: settings } = await (supabaseAdmin as any)
+      .from("loyalty_settings")
+      .select("*")
+      .eq("restaurant_id", table.restaurant_id)
       .maybeSingle();
-    return { balance: wallet ? Number(wallet.balance) : 0 };
+
+    if (!settings || !settings.enabled) return { settings: null, balance: 0 };
+
+    const balance = await getWalletBalance(data.userId, table.restaurant_id);
+
+    return { settings, balance };
   });
